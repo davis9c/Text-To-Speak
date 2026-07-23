@@ -1,0 +1,28 @@
+# =============================================================================
+# Announcement Server - Configuration
+# =============================================================================
+# File ini adalah sumber konfigurasi utama aplikasi.
+# Nilai di sini dapat di-override lewat environment variable dengan prefix
+# APP_ dan nested delimiter "__", contoh:
+#   APP_SERVER__PORT=9000
+#   APP_LOGGING__LEVEL=DEBUG
+# =============================================================================
+
+app:
+  name: "Announcement Server"
+  description: "Production Ready Text-to-Speech Announcement Server untuk sistem Public Address (TOA)."
+  environment: "development"   # development | staging | production
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  reload: false
+  workers: 1
+
+logging:
+  level: "INFO"                # DEBUG | INFO | WARNING | ERROR | CRITICAL
+  directory: "logs"
+  filename: "announcement_server.log"
+  max_bytes: 10485760          # 10 MB
+  backup_count: 5
+  json_format: false

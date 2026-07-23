@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environment
+venv/
+.venv/
+
+# Logs
+logs/*.log
+logs/*.log.*
+
+# Cache (dipakai mulai Phase 3 - TTS cache audio)
+cache/
+
+# Config lokal (override, secret)
+config/local.yaml
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

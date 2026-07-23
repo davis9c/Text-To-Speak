@@ -1,0 +1,18 @@
+# =============================================================================
+# Announcement Server - Dependencies
+# Phase 1: Project Foundation
+# =============================================================================
+
+# --- Web Framework ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# --- Configuration & Validation ---
+pydantic==2.10.4
+pydantic-settings==2.7.1
+PyYAML==6.0.2
+
+# --- Testing ---
+pytest==8.3.4
+pytest-asyncio==0.25.1
+httpx==0.28.1
