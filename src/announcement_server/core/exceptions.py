@@ -61,6 +61,35 @@ class ValidationAppError(AppError):
     error_code = "VALIDATION_ERROR"
 
 
+class ConflictError(AppError):
+    """Base class untuk konflik state (aksi tidak valid pada state resource saat ini)."""
+
+    status_code = status.HTTP_409_CONFLICT
+    error_code = "CONFLICT"
+
+
+# --- Queue System (Phase 2) -------------------------------------------------
+
+
+class QueueFullError(ConflictError):
+    """Antrean sudah mencapai kapasitas maksimum (item PENDING)."""
+
+    error_code = "QUEUE_FULL"
+
+
+class QueueItemNotFoundError(NotFoundError):
+    """Item antrean dengan id tertentu tidak ditemukan di registry."""
+
+    error_code = "QUEUE_ITEM_NOT_FOUND"
+
+
+class QueueItemNotCancellableError(ConflictError):
+    """Item antrean tidak dapat dibatalkan karena statusnya bukan PENDING."""
+
+    error_code = "QUEUE_ITEM_NOT_CANCELLABLE"
+
+
+
 def _error_response(request_id: str, error_code: str, message: str, details: dict[str, Any]) -> dict[str, Any]:
     return {
         "success": False,

@@ -78,6 +78,24 @@ class AppMetadata(BaseModel):
         return normalized
 
 
+class QueueConfig(BaseModel):
+    """Konfigurasi Queue System (Phase 2)."""
+
+    max_size: int = Field(
+        default=100,
+        ge=1,
+        description="Jumlah maksimum item berstatus PENDING yang boleh ada di antrean secara bersamaan",
+    )
+    max_history: int = Field(
+        default=1000,
+        ge=0,
+        description=(
+            "Jumlah maksimum riwayat item final (completed/failed/cancelled) yang disimpan di memory "
+            "sebelum dipangkas otomatis. Mencegah memory leak pada operasional 24/7."
+        ),
+    )
+
+
 def _read_yaml_file(path: Path) -> dict[str, Any]:
     """Membaca file YAML dan mengembalikan dict. Aman terhadap file kosong."""
     if not path.exists():
@@ -124,6 +142,7 @@ class AppSettings(BaseSettings):
     app: AppMetadata = Field(default_factory=AppMetadata)
     server: ServerConfig = Field(default_factory=ServerConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    queue: QueueConfig = Field(default_factory=QueueConfig)
 
     @classmethod
     def settings_customise_sources(

@@ -20,9 +20,12 @@ from fastapi.responses import JSONResponse
 
 from announcement_server import __version__
 from announcement_server.api.v1.health import router as health_router
+from announcement_server.api.v1.queue import router as queue_router
 from announcement_server.core.config import AppSettings, get_settings
 from announcement_server.core.exceptions import register_exception_handlers
 from announcement_server.core.logging import setup_logging
+from announcement_server.queueing.manager import QueueManager
+from announcement_server.queueing.worker import QueueWorker
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +34,9 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup & shutdown hook.
 
-    Fase berikutnya (Queue System, TTS Engine, dll) akan menginisialisasi
-    resource jangka panjang (worker task, engine, dsb) di sini, dan
-    memastikannya berhenti secara graceful saat shutdown.
+    Menginisialisasi resource jangka panjang (Queue System pada Phase 2,
+    TTS Engine pada Phase 3, dst) dan memastikannya berhenti secara
+    graceful saat shutdown.
     """
     settings: AppSettings = app.state.settings
     logger.info(
@@ -42,7 +45,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         __version__,
         settings.app.environment,
     )
+
+    # Queue System (Phase 2): QueueManager & QueueWorker dibuat SEKALI di
+    # sini (bukan per-request) karena keduanya menyimpan state jangka
+    # panjang (antrean, registry item) yang harus hidup selama proses
+    # server berjalan. Worker mulai berjalan sebagai background task saat
+    # startup dan dihentikan secara graceful saat shutdown, agar item yang
+    # sedang PROCESSING tidak terpotong paksa.
+    queue_manager = QueueManager(max_size=settings.queue.max_size, max_history=settings.queue.max_history)
+    app.state.queue_manager = queue_manager
+
+    queue_worker = QueueWorker(queue_manager)
+    queue_worker.start()
+    app.state.queue_worker = queue_worker
+
     yield
+
+    await queue_worker.stop()
     logger.info("Shutting down %s", settings.app.name)
 
 
@@ -97,6 +116,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     register_exception_handlers(app)
 
     app.include_router(health_router)
+    app.include_router(queue_router)
 
     return app
 
