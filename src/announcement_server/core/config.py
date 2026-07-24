@@ -78,6 +78,91 @@ class AppMetadata(BaseModel):
         return normalized
 
 
+class TTSConfig(BaseModel):
+    """Konfigurasi TTS Engine (Phase 3)."""
+
+    engine: str = Field(
+        default="piper",
+        description="Nama engine TTS aktif. Harus terdaftar di EngineFactory (lihat tts/engine_factory.py).",
+    )
+    piper_binary_path: str = Field(
+        default="engines/piper/piper.exe",
+        description="Path ke executable Piper (Windows: piper.exe). Piper TIDAK disertakan dalam repo ini "
+        "dan harus diunduh terpisah — lihat README.",
+    )
+    piper_models_dir: str = Field(
+        default="engines/piper/models",
+        description="Direktori berisi pasangan file model Piper (<voice>.onnx dan <voice>.onnx.json).",
+    )
+    default_voice: str = Field(
+        default="en_US-lessac-medium",
+        description="Nama voice default (tanpa ekstensi) yang dipakai jika request tidak menyebutkan voice.",
+    )
+    generation_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        description="Batas waktu maksimum proses sintesis TTS untuk satu item sebelum dianggap gagal.",
+    )
+    cache_dir: str = Field(
+        default="cache/audio",
+        description="Direktori penyimpanan cache audio hasil TTS (key = SHA256 dari parameter sintesis).",
+    )
+
+
+class PlaybackConfig(BaseModel):
+    """Konfigurasi Audio Playback (Phase 4) & Announcement Pipeline (Phase 5)."""
+
+    default_device_id: int | None = Field(
+        default=None,
+        description="ID output device default (lihat GET /devices untuk daftar id). "
+        "null = pakai default output device sistem Windows.",
+    )
+    post_playback_delay_seconds: float = Field(
+        default=0.5,
+        ge=0.0,
+        description="Jeda (detik) setelah satu pengumuman selesai diputar sebelum worker "
+        "mulai memproses item antrean berikutnya (tahap 'Delay' pada pipeline Phase 5). "
+        "0 = tanpa jeda.",
+    )
+
+
+class ZoneDefinition(BaseModel):
+    """Konfigurasi statis satu Zone (Phase 6), dibaca dari ``config.yaml`` (bagian ``zones:``).
+
+    Catatan desain — ``device_id`` (integer) dipakai alih-alih ``device``
+    (nama string) seperti pada contoh YAML ilustratif di roadmap, supaya
+    konsisten dengan konvensi identifikasi device yang SUDAH ditetapkan
+    sejak Phase 4 (``GET /devices`` mengembalikan ``id`` integer, dan
+    ``POST /device`` menerima ``device_id`` integer — lihat
+    ``playback/device_manager.py``). Mencocokkan device lewat nama string
+    akan menambah lapisan resolusi baru yang tidak konsisten dengan API
+    Playback yang sudah ada, sehingga sengaja tidak dipakai.
+
+    Zone tambahan (selain ``main``) yang didefinisikan di sini akan
+    otomatis dibuat oleh ``ZoneManager`` saat aplikasi startup (lihat
+    ``main.py``). Zone juga dapat dibuat/diubah/dihapus secara dinamis
+    lewat REST API (``POST /zones``, ``PUT /zones/{name}``,
+    ``DELETE /zones/{name}``) tanpa perlu mengedit file ini maupun
+    me-restart server.
+    """
+
+    device_id: int | None = Field(
+        default=None,
+        description="ID output device untuk zone ini (lihat GET /devices). null = belum ada device dipilih.",
+    )
+    enabled: bool = Field(
+        default=True,
+        description="Jika false, zone dibuat tetapi worker-nya TIDAK berjalan (tidak memproses antrean).",
+    )
+    volume: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=2.0,
+        description="Volume/gain khusus zone ini (analog volume knob per-channel amplifier), diterapkan saat "
+        "playback tanpa memengaruhi cache audio TTS yang dipakai bersama seluruh zone.",
+    )
+
+
 class QueueConfig(BaseModel):
     """Konfigurasi Queue System (Phase 2)."""
 
@@ -142,7 +227,15 @@ class AppSettings(BaseSettings):
     app: AppMetadata = Field(default_factory=AppMetadata)
     server: ServerConfig = Field(default_factory=ServerConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    tts: TTSConfig = Field(default_factory=TTSConfig)
+    playback: PlaybackConfig = Field(default_factory=PlaybackConfig)
     queue: QueueConfig = Field(default_factory=QueueConfig)
+    zones: dict[str, ZoneDefinition] = Field(
+        default_factory=dict,
+        description="Definisi Zone tambahan (Phase 6), key = nama zone. Zone 'main' SELALU dibuat otomatis "
+        "dari config 'playback'/'queue' di atas; jika key 'main' turut didefinisikan di sini, nilainya "
+        "meng-override default tsb (device_id/enabled/volume) tanpa mengubah max_size/max_history-nya.",
+    )
 
     @classmethod
     def settings_customise_sources(

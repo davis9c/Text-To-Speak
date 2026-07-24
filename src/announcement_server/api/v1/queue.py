@@ -14,8 +14,8 @@ import uuid
 
 from fastapi import APIRouter, Query, status
 
-from announcement_server.api.deps import QueueManagerDep
-from announcement_server.queueing.models import QueueItemStatus
+from announcement_server.api.deps import QueueManagerDep, SettingsDep
+from announcement_server.queueing.models import DEFAULT_ACTIVE_STATUSES, QueueItemStatus
 from announcement_server.schemas.queue import (
     ClearResponse,
     QueueItemResponse,
@@ -31,8 +31,10 @@ router = APIRouter(tags=["Queue"])
 # diberikan: hanya item yang masih "aktif" (belum final). Riwayat lengkap
 # (termasuk completed/failed/cancelled) tetap bisa diakses lewat parameter
 # `status` eksplisit — endpoint riwayat penuh (`GET /history`) baru
-# direncanakan pada Phase 10 sesuai roadmap.
-_DEFAULT_ACTIVE_STATUSES = {QueueItemStatus.PENDING, QueueItemStatus.PROCESSING}
+# direncanakan pada Phase 10 sesuai roadmap. Konstanta ini didefinisikan di
+# ``queueing.models`` (single source of truth) supaya GET /zones/{name}/queue
+# (Phase 6) memakai default yang persis sama.
+_DEFAULT_ACTIVE_STATUSES = DEFAULT_ACTIVE_STATUSES
 
 
 @router.post(
@@ -41,13 +43,22 @@ _DEFAULT_ACTIVE_STATUSES = {QueueItemStatus.PENDING, QueueItemStatus.PROCESSING}
     status_code=status.HTTP_201_CREATED,
     summary="Menambahkan pengumuman baru ke antrean",
     description=(
-        "Menambahkan teks pengumuman ke antrean untuk diproses. "
-        "Pada Phase 2, item hanya sampai berstatus completed sebagai placeholder "
-        "(TTS/audio nyata baru tersedia mulai Phase 3)."
+        "Menambahkan teks pengumuman ke antrean untuk diproses. Sintesis TTS terjadi secara "
+        "ASINKRON oleh QueueWorker (bukan di dalam request ini) — response 201 hanya berarti "
+        "item berhasil masuk antrean, BUKAN berarti audio sudah jadi. Pantau progres lewat "
+        "GET /queue atau GET /queue?status=completed / status=failed."
     ),
 )
-async def speak(payload: SpeakRequest, manager: QueueManagerDep) -> QueueItemResponse:
-    item = await manager.enqueue(text=payload.text, priority=payload.priority)
+async def speak(payload: SpeakRequest, manager: QueueManagerDep, settings: SettingsDep) -> QueueItemResponse:
+    voice = payload.voice or settings.tts.default_voice
+    item = await manager.enqueue(
+        text=payload.text,
+        priority=payload.priority,
+        voice=voice,
+        speed=payload.speed,
+        pitch=payload.pitch,
+        volume=payload.volume,
+    )
     pending_items = await manager.list_items(statuses={QueueItemStatus.PENDING})
     position = manager.position_of(item.id, pending_items)
     return QueueItemResponse.from_item(item, position=position)

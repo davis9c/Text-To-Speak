@@ -12,6 +12,20 @@ pydantic==2.10.4
 pydantic-settings==2.7.1
 PyYAML==6.0.2
 
+# --- TTS Engine (Phase 3) ---
+# `audioop` (dipakai untuk post-processing volume/pitch) adalah modul stdlib
+# yang DIHAPUS mulai Python 3.13 (PEP 594). Baris di bawah menyediakan
+# backport-nya secara kondisional, sehingga project tetap kompatibel jika
+# suatu saat dijalankan di atas Python 3.13+ tanpa perlu mengubah kode.
+audioop-lts==0.2.1; python_version >= "3.13"
+
+# --- Audio Playback (Phase 4) ---
+# sounddevice membawa binary PortAudio siap pakai untuk Windows (tidak perlu
+# instalasi driver terpisah seperti Piper). numpy dipakai untuk representasi
+# buffer sample audio yang dibaca/ditulis oleh sounddevice.
+sounddevice==0.5.1
+numpy==2.2.1
+
 # --- Testing ---
 pytest==8.3.4
 pytest-asyncio==0.25.1

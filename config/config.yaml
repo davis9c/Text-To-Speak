@@ -27,6 +27,41 @@ logging:
   backup_count: 5
   json_format: false
 
+tts:
+  engine: "piper"                              # Nama engine aktif (harus terdaftar di EngineFactory)
+  piper_binary_path: "engines/piper/piper.exe"  # Path ke executable Piper (unduh terpisah, lihat README)
+  piper_models_dir: "engines/piper/models"      # Direktori berisi <voice>.onnx + <voice>.onnx.json
+  default_voice: "en_US-lessac-medium"          # Voice default jika request tidak menyebutkan voice
+  generation_timeout_seconds: 30.0              # Timeout sintesis per item
+  cache_dir: "cache/audio"                      # Direktori cache audio (key: SHA256)
+
+playback:
+  default_device_id: null                       # null = pakai default output device Windows. Lihat GET /devices untuk id.
+  post_playback_delay_seconds: 0.5               # Jeda (detik) antar pengumuman pada pipeline Worker (Phase 5). 0 = tanpa jeda.
+
 queue:
   max_size: 100                # Maksimum item PENDING secara bersamaan
   max_history: 1000            # Maksimum riwayat item final disimpan di memory
+
+# =============================================================================
+# Zones (Phase 6 — Multi Zone)
+# =============================================================================
+# Zone 'main' SELALU otomatis dibuat dari 'playback'/'queue' di atas dan
+# TIDAK BOLEH dihapus (dipakai oleh /speak, /queue, /devices, dst — lihat
+# README). Zone lain di bawah ini bersifat opsional: dibuat otomatis saat
+# startup, dan juga bisa dibuat/diubah/dihapus saat runtime lewat REST API
+# (POST/PUT/DELETE /zones) tanpa perlu mengedit file ini.
+#   device_id : ID output device (lihat GET /devices). null = belum dipilih.
+#   enabled   : jika false, zone dibuat tapi worker-nya tidak memproses antrean.
+#   volume    : volume/gain khusus zone ini (0.0 - 2.0), seperti volume knob
+#               per-channel amplifier TOA.
+zones:
+  lobby:
+    device_id: null
+    enabled: false
+    volume: 1.0
+
+  produksi:
+    device_id: null
+    enabled: false
+    volume: 1.0

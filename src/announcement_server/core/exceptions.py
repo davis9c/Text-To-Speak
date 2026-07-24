@@ -89,6 +89,104 @@ class QueueItemNotCancellableError(ConflictError):
     error_code = "QUEUE_ITEM_NOT_CANCELLABLE"
 
 
+# --- TTS Engine (Phase 3) ----------------------------------------------------
+#
+# Exception di bawah ini umumnya TIDAK menyentuh HTTP layer secara langsung.
+# Sintesis TTS terjadi secara asinkron di dalam QueueWorker (bukan di dalam
+# request POST /speak), sehingga saat exception ini terjadi, ia ditangkap
+# oleh QueueWorker (lihat queueing/worker.py, sudah ada sejak Phase 2) dan
+# diterjemahkan menjadi status item = FAILED + error_message. Client
+# mengetahui kegagalan lewat GET /queue?status=failed, bukan lewat response
+# error HTTP langsung. Class-nya tetap diturunkan dari AppError (bukan
+# Exception biasa) demi konsistensi hierarki dan supaya tetap bisa dipakai
+# lewat jalur HTTP biasa jika kelak ada endpoint sinkron (mis. "test voice").
+
+
+class TTSEngineNotAvailableError(AppError):
+    """Engine TTS tidak tersedia (nama engine tidak terdaftar, atau binary/dependency tidak ditemukan)."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    error_code = "TTS_ENGINE_NOT_AVAILABLE"
+
+
+class TTSGenerationError(AppError):
+    """Proses sintesis TTS gagal (exit code non-zero, timeout, output tidak valid, dsb)."""
+
+    status_code = status.HTTP_502_BAD_GATEWAY
+    error_code = "TTS_GENERATION_FAILED"
+
+
+class VoiceNotFoundError(NotFoundError):
+    """Voice/model yang diminta tidak ditemukan pada direktori model engine."""
+
+    error_code = "VOICE_NOT_FOUND"
+
+
+# --- Audio Playback (Phase 4) ------------------------------------------------
+
+
+class AudioDeviceNotFoundError(NotFoundError):
+    """Device output audio dengan id tertentu tidak ditemukan pada sistem."""
+
+    error_code = "AUDIO_DEVICE_NOT_FOUND"
+
+
+class AudioFileNotFoundError(NotFoundError):
+    """File audio yang akan diputar tidak ditemukan di disk."""
+
+    error_code = "AUDIO_FILE_NOT_FOUND"
+
+
+class PlaybackStateError(ConflictError):
+    """Aksi playback (pause/resume) tidak valid untuk state saat ini."""
+
+    error_code = "PLAYBACK_STATE_ERROR"
+
+
+class PlaybackDeviceError(AppError):
+    """PortAudio/driver gagal membuka atau menulis ke output device."""
+
+    status_code = status.HTTP_502_BAD_GATEWAY
+    error_code = "PLAYBACK_DEVICE_ERROR"
+
+
+# --- Multi Zone (Phase 6) -----------------------------------------------------
+#
+# Setiap Zone (lihat ``zones/manager.py``) membungkus QueueManager + QueueWorker
+# + PlaybackManager miliknya sendiri. Exception di bawah ini murni soal
+# *manajemen* zone (CRUD, proteksi zone "main") — TIDAK menggantikan exception
+# Queue System (Phase 2) maupun Playback (Phase 4) yang tetap dipakai apa
+# adanya oleh setiap zone untuk error di dalam queue/playback milik zone itu.
+
+
+class ZoneNotFoundError(NotFoundError):
+    """Zone dengan nama tertentu tidak terdaftar di ZoneManager."""
+
+    error_code = "ZONE_NOT_FOUND"
+
+
+class ZoneAlreadyExistsError(ConflictError):
+    """Nama zone yang diminta sudah dipakai oleh zone lain."""
+
+    error_code = "ZONE_ALREADY_EXISTS"
+
+
+class ZoneProtectedError(ConflictError):
+    """Operasi tidak diizinkan pada zone yang dilindungi (mis. menghapus zone 'main').
+
+    Zone ``main`` WAJIB selalu ada karena seluruh endpoint Phase 1-5
+    (``/speak``, ``/queue``, ``/devices``, ``/device``, ``/pause``, dst)
+    beroperasi di atasnya demi backward compatibility.
+    """
+
+    error_code = "ZONE_PROTECTED"
+
+
+class ZoneDisabledError(ConflictError):
+    """Zone ditemukan tetapi sedang nonaktif (enabled=false) sehingga tidak dapat menerima pengumuman baru."""
+
+    error_code = "ZONE_DISABLED"
+
 
 def _error_response(request_id: str, error_code: str, message: str, details: dict[str, Any]) -> dict[str, Any]:
     return {

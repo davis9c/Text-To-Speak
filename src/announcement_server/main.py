@@ -20,12 +20,16 @@ from fastapi.responses import JSONResponse
 
 from announcement_server import __version__
 from announcement_server.api.v1.health import router as health_router
+from announcement_server.api.v1.playback import router as playback_router
 from announcement_server.api.v1.queue import router as queue_router
+from announcement_server.api.v1.zones import router as zones_router
 from announcement_server.core.config import AppSettings, get_settings
 from announcement_server.core.exceptions import register_exception_handlers
 from announcement_server.core.logging import setup_logging
-from announcement_server.queueing.manager import QueueManager
-from announcement_server.queueing.worker import QueueWorker
+from announcement_server.playback.device_manager import AudioDeviceManager
+from announcement_server.tts.service import TTSService
+from announcement_server.zones.manager import ZoneManager
+from announcement_server.zones.models import MAIN_ZONE_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -46,22 +50,83 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.app.environment,
     )
 
-    # Queue System (Phase 2): QueueManager & QueueWorker dibuat SEKALI di
-    # sini (bukan per-request) karena keduanya menyimpan state jangka
-    # panjang (antrean, registry item) yang harus hidup selama proses
-    # server berjalan. Worker mulai berjalan sebagai background task saat
-    # startup dan dihentikan secara graceful saat shutdown, agar item yang
-    # sedang PROCESSING tidak terpotong paksa.
-    queue_manager = QueueManager(max_size=settings.queue.max_size, max_history=settings.queue.max_history)
-    app.state.queue_manager = queue_manager
+    # Audio Device (Phase 4): di-share oleh SELURUH zone (Phase 6) karena
+    # enumerasi device bersifat stateless terhadap zone mana pun. Inisialisasi
+    # tetap dibuat graceful seperti sejak Phase 4: jika PortAudio/driver audio
+    # tidak terdeteksi (mis. server tanpa sound card, atau driver belum
+    # terinstall), server TETAP bisa start dan endpoint lain (health, queue,
+    # speak) tetap berfungsi normal — hanya endpoint Playback yang akan
+    # mengembalikan error jelas saat dipanggil (lihat api/deps.py), dan
+    # tahap Playback pada pipeline tiap zone akan dilewati (lihat
+    # queueing/pipeline_processor.py) — bukan membuat seluruh server gagal
+    # start ataupun menggagalkan item antrean.
+    audio_device_manager: AudioDeviceManager | None
+    try:
+        audio_device_manager = AudioDeviceManager()
+    except Exception:
+        logger.warning(
+            "Sistem audio (PortAudio/driver) tidak tersedia di mesin ini. Endpoint "
+            "/devices, /device, /pause, /resume, /stop (di setiap zone) akan mengembalikan "
+            "error hingga driver audio terdeteksi, dan tahap Playback pada pipeline Worker "
+            "akan dilewati.",
+            exc_info=True,
+        )
+        audio_device_manager = None
+    app.state.audio_device_manager = audio_device_manager
 
-    queue_worker = QueueWorker(queue_manager)
-    queue_worker.start()
-    app.state.queue_worker = queue_worker
+    # TTS Engine (Phase 3): TTSService dibangun sekali (membuat instance
+    # engine + cache) dan di-share oleh SELURUH zone (Phase 6) — engine TTS
+    # & cache audio berbasis SHA256 independen dari konsep zone, sehingga
+    # menggandakannya per zone hanya akan memboroskan resource.
+    tts_service = TTSService(settings.tts)
+    app.state.tts_service = tts_service
+
+    # Multi Zone (Phase 6): ZoneManager mengorkestrasi Queue + Worker +
+    # Playback + Pipeline (Phase 2/4/5, tidak diduplikasi) untuk setiap
+    # zone. Zone "main" SELALU dibuat dari config 'queue'/'playback' di
+    # atas (opsional di-override oleh `zones.main` di config.yaml jika ada)
+    # — persis perilaku satu-satunya jalur audio yang ada sejak Phase 1-5,
+    # sehingga endpoint /speak, /queue, /clear, /devices, /device, /pause,
+    # /resume, /stop TIDAK BERUBAH SAMA SEKALI dan tetap beroperasi di atas
+    # zone ini lewat alias `app.state.queue_manager`/`playback_manager` di
+    # bawah (full backward compatibility).
+    zone_manager = ZoneManager(
+        audio_device_manager=audio_device_manager,
+        tts_service=tts_service,
+        default_max_size=settings.queue.max_size,
+        default_max_history=settings.queue.max_history,
+        default_post_playback_delay_seconds=settings.playback.post_playback_delay_seconds,
+    )
+    app.state.zone_manager = zone_manager
+
+    main_zone_config = settings.zones.get(MAIN_ZONE_NAME)
+    await zone_manager.create_zone(
+        MAIN_ZONE_NAME,
+        device_id=main_zone_config.device_id if main_zone_config else settings.playback.default_device_id,
+        volume=main_zone_config.volume if main_zone_config else 1.0,
+        enabled=main_zone_config.enabled if main_zone_config else True,
+    )
+    for zone_name, zone_config in settings.zones.items():
+        if zone_name == MAIN_ZONE_NAME:
+            continue
+        await zone_manager.create_zone(
+            zone_name,
+            device_id=zone_config.device_id,
+            volume=zone_config.volume,
+            enabled=zone_config.enabled,
+        )
+
+    # Alias backward-compat (Phase 1-5): endpoint & dependency yang sudah
+    # ada (api/deps.py) TIDAK diubah sama sekali dan tetap membaca
+    # app.state.queue_manager / app.state.playback_manager / app.state.queue_worker
+    # apa adanya — nilainya sekarang diambil dari zone "main" milik ZoneManager.
+    app.state.queue_manager = zone_manager.get_queue_manager(MAIN_ZONE_NAME)
+    app.state.playback_manager = zone_manager.get_playback_manager(MAIN_ZONE_NAME)
+    app.state.queue_worker = zone_manager.get_queue_worker(MAIN_ZONE_NAME)
 
     yield
 
-    await queue_worker.stop()
+    await zone_manager.shutdown()
     logger.info("Shutting down %s", settings.app.name)
 
 
@@ -117,6 +182,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(queue_router)
+    app.include_router(playback_router)
+    app.include_router(zones_router)
 
     return app
 

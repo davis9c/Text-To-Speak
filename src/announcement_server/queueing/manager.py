@@ -94,8 +94,24 @@ class QueueManager:
     def max_size(self) -> int:
         return self._max_size
 
-    async def enqueue(self, text: str, priority: QueuePriority) -> QueueItem:
-        """Menambahkan item baru ke antrean. Melempar QueueFullError jika penuh."""
+    async def enqueue(
+        self,
+        text: str,
+        priority: QueuePriority,
+        *,
+        voice: str = "default",
+        speed: float = 1.0,
+        pitch: float = 1.0,
+        volume: float = 1.0,
+    ) -> QueueItem:
+        """Menambahkan item baru ke antrean. Melempar QueueFullError jika penuh.
+
+        Parameter TTS (``voice``/``speed``/``pitch``/``volume``) SENGAJA
+        keyword-only dengan default, ditambahkan pada Phase 3 tanpa
+        mengubah dua parameter pertama (``text``, ``priority``) yang sudah
+        ada sejak Phase 2 — kode/test lama yang memanggil
+        ``enqueue(text, priority)`` tetap berjalan tanpa perubahan.
+        """
         async with self._lock:
             pending_count = sum(1 for item in self._registry.values() if item.status == QueueItemStatus.PENDING)
             if pending_count >= self._max_size:
@@ -112,6 +128,10 @@ class QueueManager:
                 status=QueueItemStatus.PENDING,
                 created_at=now,
                 updated_at=now,
+                voice=voice,
+                speed=speed,
+                pitch=pitch,
+                volume=volume,
             )
             self._registry[item.id] = item
 
@@ -140,6 +160,23 @@ class QueueManager:
             item.status = QueueItemStatus.PROCESSING
             item.updated_at = _utcnow()
             return item.model_copy()
+
+    async def update_tts_result(self, item_id: uuid.UUID, *, audio_file_path: str, cache_hit: bool) -> None:
+        """Menyimpan hasil sintesis TTS (path file audio + status cache) ke item.
+
+        Ditambahkan pada Phase 3, dipanggil oleh ``TTSQueueProcessor``
+        SEBELUM item ditandai selesai oleh worker. Method ini SENGAJA
+        TIDAK mengubah ``status`` item — perubahan status tetap sepenuhnya
+        menjadi tanggung jawab ``mark_completed``/``mark_failed`` yang
+        sudah ada sejak Phase 2 (Single Responsibility), sehingga kontrak
+        kedua method tsb tidak perlu diubah sama sekali untuk Phase 3.
+        """
+        async with self._lock:
+            item = self._registry.get(item_id)
+            if item is not None:
+                item.audio_file_path = audio_file_path
+                item.cache_hit = cache_hit
+                item.updated_at = _utcnow()
 
     async def mark_completed(self, item_id: uuid.UUID) -> None:
         """Menandai item selesai diproses. Dipanggil oleh QueueWorker."""
