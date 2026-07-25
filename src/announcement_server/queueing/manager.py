@@ -54,7 +54,13 @@ from announcement_server.core.exceptions import (
     QueueItemNotCancellableError,
     QueueItemNotFoundError,
 )
-from announcement_server.queueing.models import FINISHED_STATUSES, QueueItem, QueueItemStatus, QueuePriority
+from announcement_server.queueing.models import (
+    FINISHED_STATUSES,
+    AnnouncementType,
+    QueueItem,
+    QueueItemStatus,
+    QueuePriority,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +109,8 @@ class QueueManager:
         speed: float = 1.0,
         pitch: float = 1.0,
         volume: float = 1.0,
+        announcement_type: AnnouncementType = AnnouncementType.TTS,
+        source_file: str | None = None,
     ) -> QueueItem:
         """Menambahkan item baru ke antrean. Melempar QueueFullError jika penuh.
 
@@ -111,6 +119,11 @@ class QueueManager:
         mengubah dua parameter pertama (``text``, ``priority``) yang sudah
         ada sejak Phase 2 — kode/test lama yang memanggil
         ``enqueue(text, priority)`` tetap berjalan tanpa perubahan.
+
+        ``announcement_type``/``source_file`` (Phase 7) mengikuti pola yang
+        sama: keyword-only dengan default ``AnnouncementType.TTS``/``None``,
+        sehingga seluruh pemanggilan lama (Phase 2-6, selalu TTS) tetap
+        berperilaku identik tanpa perubahan.
         """
         async with self._lock:
             pending_count = sum(1 for item in self._registry.values() if item.status == QueueItemStatus.PENDING)
@@ -132,6 +145,8 @@ class QueueManager:
                 speed=speed,
                 pitch=pitch,
                 volume=volume,
+                announcement_type=announcement_type,
+                source_file=source_file,
             )
             self._registry[item.id] = item
 

@@ -34,6 +34,20 @@ class QueuePriority(str, Enum):
     LOW = "low"
 
 
+class AnnouncementType(str, Enum):
+    """Sumber audio satu item pengumuman (Phase 7 — Announcement Engine).
+
+    - ``TTS`` (default, perilaku Phase 1-6 tanpa perubahan): teks disintesis
+      lewat ``TTSService`` (Phase 3).
+    - ``AUDIO``: memutar file audio yang SUDAH ADA di disk (bell, alarm,
+      jingle, MP3/WAV apa pun) — TIDAK melalui TTS sama sekali, lihat
+      ``announcement/asset_resolver.py``.
+    """
+
+    TTS = "tts"
+    AUDIO = "audio"
+
+
 class QueueItemStatus(str, Enum):
     """Status siklus hidup sebuah item antrean."""
 
@@ -85,4 +99,19 @@ class QueueItem(BaseModel):
     )
     cache_hit: bool | None = Field(
         default=None, description="True jika audio diambil dari cache, False jika baru disintesis. None jika belum diproses."
+    )
+
+    # --- Field Announcement Engine (Phase 7) ---
+    # `announcement_type` menentukan tahap "Cache/Generate" mana yang
+    # dipakai (lihat `announcement/source_processor.py`): TTS (Phase 3,
+    # tidak diubah) atau resolusi file audio statis (Phase 7). Default
+    # `TTS` menjaga SELURUH item lama (Phase 1-6, tidak pernah mengirim
+    # field ini) berperilaku identik seperti sebelumnya.
+    announcement_type: AnnouncementType = Field(
+        default=AnnouncementType.TTS, description="Sumber audio item ini: 'tts' (default) atau 'audio'"
+    )
+    source_file: str | None = Field(
+        default=None,
+        description="Path file audio statis (relatif terhadap announcement.sounds_dir) untuk "
+        "announcement_type='audio'. null untuk announcement_type='tts'.",
     )

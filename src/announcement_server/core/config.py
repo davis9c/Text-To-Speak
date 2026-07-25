@@ -126,6 +126,40 @@ class PlaybackConfig(BaseModel):
     )
 
 
+class AnnouncementConfig(BaseModel):
+    """Konfigurasi Announcement Engine (Phase 7) — file audio statis (bell/alarm/jingle/dsb) di luar TTS.
+
+    Selain TTS (Phase 3), server dapat memutar file audio yang SUDAH ADA
+    di disk (WAV/MP3/dst — lihat ``announcement/asset_resolver.py``).
+    ``ffmpeg`` bersifat OPSIONAL, persis seperti Piper pada Phase 3
+    (graceful degradation): file yang SUDAH berformat WAV tetap bisa
+    diputar tanpa ``ffmpeg`` sama sekali; ``ffmpeg`` hanya dibutuhkan
+    untuk mengonversi format lain (mis. MP3) ke WAV.
+    """
+
+    sounds_dir: str = Field(
+        default="sounds",
+        description="Direktori berisi file audio statis (bell/alarm/jingle/dst). Path pada request "
+        "POST /speak (`file`) SELALU relatif terhadap direktori ini — request tidak dapat "
+        "mengakses file di luar direktori ini (dicegah lewat validasi path).",
+    )
+    ffmpeg_binary_path: str = Field(
+        default="ffmpeg",
+        description="Path ke executable ffmpeg, atau cukup 'ffmpeg' jika sudah ada di PATH sistem. "
+        "Hanya dipakai saat file sumber BUKAN .wav (lihat docstring kelas ini).",
+    )
+    converted_cache_dir: str = Field(
+        default="cache/announcement_audio",
+        description="Direktori cache hasil konversi ffmpeg ke WAV (key = SHA256 dari path+mtime+size "
+        "file sumber), supaya file yang sama tidak dikonversi ulang setiap kali diputar.",
+    )
+    conversion_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        description="Batas waktu maksimum proses konversi ffmpeg untuk satu file sebelum dianggap gagal.",
+    )
+
+
 class ZoneDefinition(BaseModel):
     """Konfigurasi statis satu Zone (Phase 6), dibaca dari ``config.yaml`` (bagian ``zones:``).
 
@@ -161,6 +195,71 @@ class ZoneDefinition(BaseModel):
         description="Volume/gain khusus zone ini (analog volume knob per-channel amplifier), diterapkan saat "
         "playback tanpa memengaruhi cache audio TTS yang dipakai bersama seluruh zone.",
     )
+
+
+class SchedulerConfig(BaseModel):
+    """Konfigurasi Scheduler (Phase 8) — pemicu pengumuman otomatis berbasis waktu."""
+
+    poll_interval_seconds: float = Field(
+        default=5.0,
+        gt=0,
+        description="Seberapa sering SchedulerManager memeriksa jadwal yang sudah jatuh tempo. "
+        "Nilai lebih kecil = lebih presisi tapi lebih sering polling; 5 detik cukup presisi "
+        "untuk jadwal berbasis menit (mis. '07:00').",
+    )
+    timezone: str = Field(
+        default="local",
+        description="Zona waktu untuk evaluasi jadwal. 'local' (default) memakai waktu sistem "
+        "(tanpa tzinfo eksplisit, mengikuti jam OS) — paling sesuai untuk perangkat PA fisik "
+        "yang jam sistemnya sudah diset ke waktu setempat. Bisa diisi nama zona IANA eksplisit "
+        "(mis. 'Asia/Jakarta') jika server & perangkat PA berada di zona waktu berbeda.",
+    )
+
+
+class ScheduleAnnouncementDefinition(BaseModel):
+    """Konfigurasi statis isi pengumuman satu jadwal (bagian dari ``ScheduleDefinition``).
+
+    Field di sini SENGAJA memakai tipe ``str`` polos (bukan mengimpor enum
+    ``AnnouncementType``/``QueuePriority`` dari ``queueing.models``) — mengikuti
+    prinsip yang sama dengan ``ZoneDefinition`` di atas: ``core/config.py``
+    tetap independen dari domain (Clean Architecture, config sebagai lapisan
+    paling dasar). Validasi & konversi ke enum domain dilakukan saat
+    jadwal ini benar-benar didaftarkan ke ``SchedulerManager`` (lihat
+    ``main.py``), persis seperti ``zones:`` diproses saat ini.
+    """
+
+    type: str = Field(default="tts", description="'tts' atau 'audio' — lihat AnnouncementType (queueing.models)")
+    text: str | None = Field(default=None, description="Wajib diisi jika type='tts'")
+    file: str | None = Field(default=None, description="Wajib diisi jika type='audio' (path relatif announcement.sounds_dir)")
+    priority: str = Field(default="normal", description="'urgent' | 'high' | 'normal' | 'low'")
+    voice: str | None = Field(default=None, description="Diabaikan jika type='audio'")
+    speed: float = Field(default=1.0, ge=0.5, le=2.0)
+    pitch: float = Field(default=1.0, ge=0.5, le=2.0)
+    volume: float = Field(default=1.0, ge=0.0, le=2.0)
+
+
+class ScheduleDefinition(BaseModel):
+    """Konfigurasi statis satu Schedule (Phase 8), dibaca dari ``config.yaml`` (bagian ``schedules:``).
+
+    Contoh sesuai ROADMAP.md (07.00 -> Bell, 12.00 -> Istirahat, 15.00 -> Pulang)
+    — lihat ``config/config.yaml``. Jadwal tambahan juga bisa dibuat/diubah/dihapus
+    secara dinamis lewat REST API (``POST /scheduler``, dst) tanpa restart server,
+    persis seperti Zone (Phase 6).
+    """
+
+    enabled: bool = Field(default=True, description="Jika false, jadwal terdaftar tapi tidak akan pernah terpicu")
+    zone: str = Field(default="main", description="Nama zone tujuan pengumuman (lihat ZoneManager, Phase 6)")
+    recurrence: str = Field(description="'daily' | 'weekly' | 'once'")
+    time_of_day: str = Field(description="Jam pemicu, format 24-jam 'HH:MM' (mis. '07:00')")
+    days_of_week: list[int] | None = Field(
+        default=None,
+        description="Hanya untuk recurrence='weekly': daftar hari (0=Senin .. 6=Minggu, mengikuti "
+        "date.weekday() Python). Wajib diisi (minimal 1 hari) untuk 'weekly'.",
+    )
+    run_date: str | None = Field(
+        default=None, description="Hanya untuk recurrence='once': tanggal pemicu, format 'YYYY-MM-DD'."
+    )
+    announcement: ScheduleAnnouncementDefinition
 
 
 class QueueConfig(BaseModel):
@@ -230,11 +329,19 @@ class AppSettings(BaseSettings):
     tts: TTSConfig = Field(default_factory=TTSConfig)
     playback: PlaybackConfig = Field(default_factory=PlaybackConfig)
     queue: QueueConfig = Field(default_factory=QueueConfig)
+    announcement: AnnouncementConfig = Field(default_factory=AnnouncementConfig)
     zones: dict[str, ZoneDefinition] = Field(
         default_factory=dict,
         description="Definisi Zone tambahan (Phase 6), key = nama zone. Zone 'main' SELALU dibuat otomatis "
         "dari config 'playback'/'queue' di atas; jika key 'main' turut didefinisikan di sini, nilainya "
         "meng-override default tsb (device_id/enabled/volume) tanpa mengubah max_size/max_history-nya.",
+    )
+    scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
+    schedules: dict[str, ScheduleDefinition] = Field(
+        default_factory=dict,
+        description="Definisi Schedule statis (Phase 8), key = nama jadwal (unik). Dibuat otomatis saat "
+        "startup — bisa juga dibuat/diubah/dihapus secara dinamis lewat REST API (/scheduler) tanpa "
+        "restart server, persis seperti 'zones' (Phase 6).",
     )
 
     @classmethod

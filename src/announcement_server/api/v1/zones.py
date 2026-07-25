@@ -183,8 +183,9 @@ async def select_zone_device(name: str, payload: SelectDeviceRequest, zone_manag
     status_code=status.HTTP_201_CREATED,
     summary="Menambahkan pengumuman baru ke antrean satu zone",
     description=(
-        "Sama seperti POST /speak (Phase 2), namun mengarahkan pengumuman ke antrean & jalur audio milik "
-        "zone tertentu alih-alih zone 'main'. Mengembalikan 409 jika zone sedang nonaktif (enabled=false)."
+        "Sama seperti POST /speak (Phase 2/7), namun mengarahkan pengumuman ke antrean & jalur audio milik "
+        "zone tertentu alih-alih zone 'main'. Mendukung `type='tts'`/`type='audio'` (Phase 7) persis sama. "
+        "Mengembalikan 409 jika zone sedang nonaktif (enabled=false)."
     ),
 )
 async def speak_to_zone(name: str, payload: SpeakRequest, zone_manager: ZoneManagerDep, settings: SettingsDep) -> QueueItemResponse:
@@ -198,12 +199,14 @@ async def speak_to_zone(name: str, payload: SpeakRequest, zone_manager: ZoneMana
     queue_manager = zone_manager.get_queue_manager(name)
     voice = payload.voice or settings.tts.default_voice
     item = await queue_manager.enqueue(
-        text=payload.text,
+        text=payload.resolved_text,
         priority=payload.priority,
         voice=voice,
         speed=payload.speed,
         pitch=payload.pitch,
         volume=payload.volume,
+        announcement_type=payload.type,
+        source_file=payload.file,
     )
     pending_items = await queue_manager.list_items(statuses={QueueItemStatus.PENDING})
     position = queue_manager.position_of(item.id, pending_items)

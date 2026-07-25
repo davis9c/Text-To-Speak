@@ -188,6 +188,53 @@ class ZoneDisabledError(ConflictError):
     error_code = "ZONE_DISABLED"
 
 
+# --- Announcement Engine (Phase 7) --------------------------------------------
+#
+# Item bertipe `audio` (lihat `queueing/models.py`, `AnnouncementType.AUDIO`)
+# tidak melalui TTS sama sekali — sumber audionya adalah file statis (bell,
+# alarm, jingle, dst) yang di-resolve oleh `AudioAssetResolver`
+# (`announcement/asset_resolver.py`). Exception ini murni untuk kegagalan di
+# tahap tsb, dan diproses lewat jalur yang SAMA seperti kegagalan TTS (Phase
+# 3) — dilempar dari dalam QueueWorker sehingga berujung status item FAILED,
+# BUKAN response error HTTP langsung (lihat catatan pada exception TTS di
+# atas untuk rationale yang identik).
+
+
+class AudioAssetNotFoundError(NotFoundError):
+    """File audio statis (`file` pada POST /speak, type='audio') tidak ditemukan atau path-nya tidak valid."""
+
+    error_code = "AUDIO_ASSET_NOT_FOUND"
+
+
+class AudioConversionUnavailableError(AppError):
+    """ffmpeg tidak terdeteksi, padahal file sumber butuh dikonversi ke WAV (bukan .wav)."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    error_code = "AUDIO_CONVERSION_UNAVAILABLE"
+
+
+class AudioConversionError(AppError):
+    """Proses konversi ffmpeg gagal (exit code non-zero, timeout, output tidak valid, dsb)."""
+
+    status_code = status.HTTP_502_BAD_GATEWAY
+    error_code = "AUDIO_CONVERSION_FAILED"
+
+
+# --- Scheduler (Phase 8) -------------------------------------------------------
+
+
+class ScheduleNotFoundError(NotFoundError):
+    """Schedule dengan id tertentu tidak terdaftar di SchedulerManager."""
+
+    error_code = "SCHEDULE_NOT_FOUND"
+
+
+class InvalidScheduleError(ValidationAppError):
+    """Konfigurasi jadwal tidak valid (mis. 'weekly' tanpa days_of_week, 'once' dengan run_date di masa lalu)."""
+
+    error_code = "INVALID_SCHEDULE"
+
+
 def _error_response(request_id: str, error_code: str, message: str, details: dict[str, Any]) -> dict[str, Any]:
     return {
         "success": False,

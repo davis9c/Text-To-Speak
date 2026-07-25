@@ -43,21 +43,25 @@ _DEFAULT_ACTIVE_STATUSES = DEFAULT_ACTIVE_STATUSES
     status_code=status.HTTP_201_CREATED,
     summary="Menambahkan pengumuman baru ke antrean",
     description=(
-        "Menambahkan teks pengumuman ke antrean untuk diproses. Sintesis TTS terjadi secara "
-        "ASINKRON oleh QueueWorker (bukan di dalam request ini) — response 201 hanya berarti "
-        "item berhasil masuk antrean, BUKAN berarti audio sudah jadi. Pantau progres lewat "
-        "GET /queue atau GET /queue?status=completed / status=failed."
+        "Menambahkan pengumuman ke antrean untuk diproses. Mendukung dua sumber audio (Phase 7, "
+        "lihat `type`): `type='tts'` (default) mensintesis `text`, `type='audio'` memutar file "
+        "statis (bell/alarm/jingle/MP3/WAV) dari `file`. Pemrosesan terjadi secara ASINKRON oleh "
+        "QueueWorker (bukan di dalam request ini) — response 201 hanya berarti item berhasil masuk "
+        "antrean, BUKAN berarti audio sudah jadi/siap diputar. Pantau progres lewat GET /queue atau "
+        "GET /queue?status=completed / status=failed."
     ),
 )
 async def speak(payload: SpeakRequest, manager: QueueManagerDep, settings: SettingsDep) -> QueueItemResponse:
     voice = payload.voice or settings.tts.default_voice
     item = await manager.enqueue(
-        text=payload.text,
+        text=payload.resolved_text,
         priority=payload.priority,
         voice=voice,
         speed=payload.speed,
         pitch=payload.pitch,
         volume=payload.volume,
+        announcement_type=payload.type,
+        source_file=payload.file,
     )
     pending_items = await manager.list_items(statuses={QueueItemStatus.PENDING})
     position = manager.position_of(item.id, pending_items)

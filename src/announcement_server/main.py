@@ -14,19 +14,25 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from announcement_server import __version__
+from announcement_server.announcement.asset_resolver import AudioAssetResolver
 from announcement_server.api.v1.health import router as health_router
 from announcement_server.api.v1.playback import router as playback_router
 from announcement_server.api.v1.queue import router as queue_router
+from announcement_server.api.v1.scheduler import router as scheduler_router
 from announcement_server.api.v1.zones import router as zones_router
 from announcement_server.core.config import AppSettings, get_settings
 from announcement_server.core.exceptions import register_exception_handlers
 from announcement_server.core.logging import setup_logging
 from announcement_server.playback.device_manager import AudioDeviceManager
+from announcement_server.queueing.models import AnnouncementType, QueuePriority
+from announcement_server.scheduler.manager import SchedulerManager
+from announcement_server.scheduler.models import AnnouncementSpec, ScheduleRecurrence, parse_run_date, parse_time_of_day
 from announcement_server.tts.service import TTSService
 from announcement_server.zones.manager import ZoneManager
 from announcement_server.zones.models import MAIN_ZONE_NAME
@@ -81,8 +87,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     tts_service = TTSService(settings.tts)
     app.state.tts_service = tts_service
 
+    # Announcement Engine (Phase 7): AudioAssetResolver dibangun sekali dan
+    # di-share oleh SELURUH zone — rationale identik dengan TTSService di
+    # atas (cache hasil konversi ffmpeg independen dari konsep zone).
+    # Konstruksinya SELALU aman walau ffmpeg tidak terinstall (graceful
+    # degradation, sama seperti Piper): file .wav tetap bisa diputar tanpa
+    # ffmpeg sama sekali, dan error baru muncul saat item bertipe 'audio'
+    # dengan sumber non-WAV benar-benar diproses (lihat
+    # announcement/asset_resolver.py).
+    asset_resolver = AudioAssetResolver(settings.announcement)
+    app.state.asset_resolver = asset_resolver
+
     # Multi Zone (Phase 6): ZoneManager mengorkestrasi Queue + Worker +
-    # Playback + Pipeline (Phase 2/4/5, tidak diduplikasi) untuk setiap
+    # Playback + Pipeline (Phase 2/4/5/7, tidak diduplikasi) untuk setiap
     # zone. Zone "main" SELALU dibuat dari config 'queue'/'playback' di
     # atas (opsional di-override oleh `zones.main` di config.yaml jika ada)
     # — persis perilaku satu-satunya jalur audio yang ada sejak Phase 1-5,
@@ -93,6 +110,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     zone_manager = ZoneManager(
         audio_device_manager=audio_device_manager,
         tts_service=tts_service,
+        asset_resolver=asset_resolver,
         default_max_size=settings.queue.max_size,
         default_max_history=settings.queue.max_history,
         default_post_playback_delay_seconds=settings.playback.post_playback_delay_seconds,
@@ -124,8 +142,62 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.playback_manager = zone_manager.get_playback_manager(MAIN_ZONE_NAME)
     app.state.queue_worker = zone_manager.get_queue_worker(MAIN_ZONE_NAME)
 
+    # Scheduler (Phase 8): SchedulerManager mengorkestrasi jadwal pemicu
+    # pengumuman otomatis (Daily/Weekly/One Time), meng-enqueue lewat
+    # QueueManager milik zone tujuan (Phase 2/6/7, tidak diduplikasi).
+    # Zona waktu 'local' (default) memakai jam sistem apa adanya (tanpa
+    # tzinfo eksplisit) — paling sesuai untuk perangkat PA fisik. Nama
+    # zona IANA eksplisit (mis. 'Asia/Jakarta') di-parse via zoneinfo;
+    # jika gagal (nama salah/tzdata tidak terpasang), fallback graceful
+    # ke 'local' — konsisten dengan prinsip graceful degradation yang
+    # sama seperti Piper/ffmpeg di atas (satu komponen belum siap tidak
+    # boleh menjatuhkan seluruh server).
+    scheduler_tz: ZoneInfo | None = None
+    if settings.scheduler.timezone.lower() != "local":
+        try:
+            scheduler_tz = ZoneInfo(settings.scheduler.timezone)
+        except ZoneInfoNotFoundError:
+            logger.warning(
+                "scheduler.timezone='%s' tidak dikenali (pastikan paket 'tzdata' terpasang untuk "
+                "nama zona IANA di Windows). Scheduler memakai waktu lokal sistem sebagai fallback.",
+                settings.scheduler.timezone,
+                exc_info=True,
+            )
+
+    scheduler_manager = SchedulerManager(
+        zone_manager,
+        default_voice=settings.tts.default_voice,
+        poll_interval_seconds=settings.scheduler.poll_interval_seconds,
+        tz=scheduler_tz,
+    )
+    app.state.scheduler_manager = scheduler_manager
+
+    for schedule_name, schedule_def in settings.schedules.items():
+        announcement_def = schedule_def.announcement
+        await scheduler_manager.create_schedule(
+            name=schedule_name,
+            enabled=schedule_def.enabled,
+            zone=schedule_def.zone,
+            recurrence=ScheduleRecurrence(schedule_def.recurrence),
+            time_of_day=parse_time_of_day(schedule_def.time_of_day),
+            days_of_week=schedule_def.days_of_week,
+            run_date=parse_run_date(schedule_def.run_date) if schedule_def.run_date else None,
+            announcement=AnnouncementSpec(
+                type=AnnouncementType(announcement_def.type),
+                text=announcement_def.text,
+                file=announcement_def.file,
+                priority=QueuePriority(announcement_def.priority),
+                voice=announcement_def.voice,
+                speed=announcement_def.speed,
+                pitch=announcement_def.pitch,
+                volume=announcement_def.volume,
+            ),
+        )
+    scheduler_manager.start()
+
     yield
 
+    await scheduler_manager.shutdown()
     await zone_manager.shutdown()
     logger.info("Shutting down %s", settings.app.name)
 
@@ -184,6 +256,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     app.include_router(queue_router)
     app.include_router(playback_router)
     app.include_router(zones_router)
+    app.include_router(scheduler_router)
 
     return app
 

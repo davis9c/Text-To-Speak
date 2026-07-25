@@ -1,10 +1,14 @@
-"""Unit test untuk ZoneManager (Phase 6).
+"""Unit test untuk ZoneManager (Phase 6, diperluas Phase 7 — asset_resolver).
 
 Memakai ``TTSConfig`` dengan ``FakeEngine`` (pola yang sama seperti
 ``test_pipeline_processor.py``) supaya tidak butuh binary Piper sungguhan,
-dan ``audio_device_manager=None`` untuk test yang tidak butuh Playback
+``audio_device_manager=None`` untuk test yang tidak butuh Playback
 sungguhan (playback_manager otomatis None di setiap zone, sama seperti
-perilaku graceful Phase 4/5 saat PortAudio tidak terdeteksi).
+perilaku graceful Phase 4/5 saat PortAudio tidak terdeteksi), dan
+``AudioAssetResolver`` (Phase 7) dengan ``sounds_dir``/``converted_cache_dir``
+sementara (``tmp_path``) — konstruksinya sendiri tidak butuh ffmpeg
+sungguhan (hanya dipanggil saat item bertipe 'audio' non-WAV benar-benar
+diproses, di luar scope test-test ZoneManager di sini).
 """
 
 from __future__ import annotations
@@ -15,7 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from announcement_server.core.config import TTSConfig
+from announcement_server.announcement.asset_resolver import AudioAssetResolver
+from announcement_server.core.config import AnnouncementConfig, TTSConfig
 from announcement_server.core.exceptions import (
     ValidationAppError,
     ZoneAlreadyExistsError,
@@ -57,8 +62,17 @@ def tts_service(tmp_path: Path) -> TTSService:
 
 
 @pytest.fixture()
-async def zone_manager(tts_service: TTSService):
-    manager = ZoneManager(audio_device_manager=None, tts_service=tts_service)
+def asset_resolver(tmp_path: Path) -> AudioAssetResolver:
+    config = AnnouncementConfig(
+        sounds_dir=str(tmp_path / "sounds"),
+        converted_cache_dir=str(tmp_path / "cache_announcement"),
+    )
+    return AudioAssetResolver(config)
+
+
+@pytest.fixture()
+async def zone_manager(tts_service: TTSService, asset_resolver: AudioAssetResolver):
+    manager = ZoneManager(audio_device_manager=None, tts_service=tts_service, asset_resolver=asset_resolver)
     yield manager
     await manager.shutdown()
 

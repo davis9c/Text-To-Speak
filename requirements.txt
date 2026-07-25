@@ -26,6 +26,15 @@ audioop-lts==0.2.1; python_version >= "3.13"
 sounddevice==0.5.1
 numpy==2.2.1
 
+# --- Scheduler (Phase 8) ---
+# Windows tidak menyertakan database zona waktu IANA secara native seperti
+# Linux/macOS, sehingga `zoneinfo.ZoneInfo("Asia/Jakarta")` bisa gagal tanpa
+# paket ini terpasang. Hanya relevan jika `scheduler.timezone` diisi nama
+# zona IANA eksplisit di config.yaml — mode default ('local', memakai jam
+# sistem apa adanya) tidak membutuhkan ini sama sekali, tapi tetap aman &
+# dianjurkan dipasang untuk portabilitas.
+tzdata==2024.2
+
 # --- Testing ---
 pytest==8.3.4
 pytest-asyncio==0.25.1

@@ -44,6 +44,22 @@ queue:
   max_history: 1000            # Maksimum riwayat item final disimpan di memory
 
 # =============================================================================
+# Announcement Engine (Phase 7)
+# =============================================================================
+# Selain TTS, server dapat memutar file audio yang SUDAH ADA di disk (bell,
+# alarm, jingle, atau file WAV/MP3 apa pun) lewat POST /speak dengan
+# {"type": "audio", "file": "sounds/bell.mp3"}. File .wav diputar langsung
+# tanpa ffmpeg; format lain (mis. .mp3) dikonversi ke WAV lewat ffmpeg dan
+# hasilnya di-cache (lihat converted_cache_dir) supaya tidak dikonversi
+# ulang setiap kali diputar. ffmpeg BERSIFAT OPSIONAL (graceful
+# degradation, sama seperti Piper) — lihat bagian "Setup ffmpeg" README.
+announcement:
+  sounds_dir: "sounds"                          # Direktori file audio statis (bell/alarm/jingle/dst)
+  ffmpeg_binary_path: "ffmpeg"                   # Path ke executable ffmpeg, atau "ffmpeg" jika sudah ada di PATH
+  converted_cache_dir: "cache/announcement_audio" # Cache hasil konversi ffmpeg ke WAV
+  conversion_timeout_seconds: 30.0               # Timeout konversi ffmpeg per file
+
+# =============================================================================
 # Zones (Phase 6 — Multi Zone)
 # =============================================================================
 # Zone 'main' SELALU otomatis dibuat dari 'playback'/'queue' di atas dan
@@ -65,3 +81,47 @@ zones:
     device_id: null
     enabled: false
     volume: 1.0
+
+# =============================================================================
+# Scheduler (Phase 8)
+# =============================================================================
+scheduler:
+  poll_interval_seconds: 5.0   # Seberapa sering jadwal jatuh tempo diperiksa
+  timezone: "local"            # "local" (jam sistem) atau nama zona IANA, mis. "Asia/Jakarta"
+
+# Jadwal statis (opsional) — dibuat otomatis saat startup. Jadwal juga bisa
+# dibuat/diubah/dihapus secara dinamis lewat REST API (/scheduler) tanpa
+# restart server, persis seperti Zone (Phase 6). Contoh di bawah mengikuti
+# ROADMAP.md Phase 8: 07.00 -> Bell, 12.00 -> Istirahat, 15.00 -> Pulang.
+# SENGAJA `enabled: false` secara default (sama seperti contoh zones: di
+# atas) — aktifkan (`enabled: true`) setelah menyiapkan sounds/bell.wav
+# dan menyesuaikan zone tujuan sesuai kebutuhan.
+schedules:
+  bell_masuk:
+    enabled: false
+    zone: "main"
+    recurrence: "daily"
+    time_of_day: "07:00"
+    announcement:
+      type: "audio"
+      file: "bell.wav"
+      priority: "high"
+
+  istirahat:
+    enabled: false
+    zone: "main"
+    recurrence: "weekly"
+    time_of_day: "12:00"
+    days_of_week: [0, 1, 2, 3, 4]   # Senin(0) - Jumat(4)
+    announcement:
+      type: "tts"
+      text: "Waktunya istirahat siang."
+
+  pulang:
+    enabled: false
+    zone: "main"
+    recurrence: "daily"
+    time_of_day: "15:00"
+    announcement:
+      type: "tts"
+      text: "Jam kerja telah selesai, selamat pulang dan hati-hati di jalan."

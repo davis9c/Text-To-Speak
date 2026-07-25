@@ -1,12 +1,13 @@
-"""Zone Manager (Phase 6 — Multi Zone).
+"""Zone Manager (Phase 6 — Multi Zone; diperluas Phase 7 — Announcement Engine).
 
 Mengorkestrasi siklus hidup banyak Zone (jalur audio independen). Setiap
 Zone yang dibuat lewat ``create_zone`` mendapat instance-nya SENDIRI dari
 komponen yang sudah ada sejak fase sebelumnya (``QueueManager``,
 ``QueueWorker``, ``PlaybackManager``, ``TTSQueueProcessor``,
-``AnnouncementPipelineProcessor``) — kelas-kelas tsb TIDAK diubah atau
-diduplikasi, hanya diinstansiasi ulang per zone (persis pola yang sudah
-dipakai untuk zone "main" sejak Phase 5, lihat ``main.py``).
+``AnnouncementSourceProcessor`` (Phase 7), ``AnnouncementPipelineProcessor``)
+— kelas-kelas tsb TIDAK diubah atau diduplikasi, hanya diinstansiasi ulang
+per zone (persis pola yang sudah dipakai untuk zone "main" sejak Phase 5,
+lihat ``main.py``).
 
 Komponen yang SENGAJA DI-SHARE lintas zone (bukan dibuat ulang per zone):
 
@@ -15,6 +16,9 @@ Komponen yang SENGAJA DI-SHARE lintas zone (bukan dibuat ulang per zone):
 - ``TTSService`` — membungkus engine TTS (mis. proses Piper) + cache audio
   berbasis SHA256 yang independen dari konsep zone; membuatnya per-zone
   hanya akan menggandakan cache & menyia-nyiakan resource tanpa manfaat.
+- ``AudioAssetResolver`` (Phase 7) — membungkus cache konversi ffmpeg yang
+  juga independen dari konsep zone, dengan rationale identik dengan
+  ``TTSService`` di atas.
 
 --------------------------------------------------------------------------
 Keputusan desain — lock tunggal (``asyncio.Lock``) untuk operasi CRUD zone:
@@ -33,6 +37,8 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from announcement_server.announcement.asset_resolver import AudioAssetResolver
+from announcement_server.announcement.source_processor import AnnouncementSourceProcessor
 from announcement_server.core.exceptions import (
     ValidationAppError,
     ZoneAlreadyExistsError,
@@ -87,12 +93,14 @@ class ZoneManager:
         *,
         audio_device_manager: AudioDeviceManager | None,
         tts_service: TTSService,
+        asset_resolver: AudioAssetResolver,
         default_max_size: int = 100,
         default_max_history: int = 1000,
         default_post_playback_delay_seconds: float = 0.5,
     ) -> None:
         self._audio_device_manager = audio_device_manager
         self._tts_service = tts_service
+        self._asset_resolver = asset_resolver
         self._default_max_size = default_max_size
         self._default_max_history = default_max_history
         self._default_post_playback_delay_seconds = default_post_playback_delay_seconds
@@ -148,8 +156,14 @@ class ZoneManager:
                         )
 
             tts_processor = TTSQueueProcessor(self._tts_service, queue_manager)
+            # Phase 7: `AnnouncementSourceProcessor` menggantikan `tts_processor`
+            # sebagai Stage 2 pipeline (kontrak `ItemProcessor` identik), lalu
+            # men-dispatch balik ke `tts_processor` (Phase 3, tidak diubah)
+            # untuk item bertipe 'tts', atau ke `self._asset_resolver` (Phase 7,
+            # di-share seluruh zone) untuk item bertipe 'audio'.
+            source_processor = AnnouncementSourceProcessor(tts_processor, self._asset_resolver, queue_manager)
             pipeline = AnnouncementPipelineProcessor(
-                tts_processor,
+                source_processor,
                 queue_manager,
                 playback_manager,
                 post_playback_delay_seconds=(

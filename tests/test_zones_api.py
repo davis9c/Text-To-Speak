@@ -24,8 +24,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from announcement_server.announcement.asset_resolver import AudioAssetResolver
 from announcement_server.api.deps import get_zone_manager
-from announcement_server.core.config import TTSConfig, get_settings
+from announcement_server.core.config import AnnouncementConfig, TTSConfig, get_settings
 from announcement_server.main import create_app
 from announcement_server.playback.device_manager import AudioDeviceManager
 from announcement_server.tts.engine_base import TTSEngine
@@ -75,10 +76,21 @@ def isolated_audio_device_manager() -> AudioDeviceManager:
 
 
 @pytest.fixture()
+def asset_resolver(tmp_path: Path) -> AudioAssetResolver:
+    config = AnnouncementConfig(
+        sounds_dir=str(tmp_path / "sounds"),
+        converted_cache_dir=str(tmp_path / "cache_announcement"),
+    )
+    return AudioAssetResolver(config)
+
+
+@pytest.fixture()
 async def isolated_zone_manager(
-    tts_service: TTSService, isolated_audio_device_manager: AudioDeviceManager
+    tts_service: TTSService, isolated_audio_device_manager: AudioDeviceManager, asset_resolver: AudioAssetResolver
 ) -> Iterator[ZoneManager]:
-    manager = ZoneManager(audio_device_manager=isolated_audio_device_manager, tts_service=tts_service)
+    manager = ZoneManager(
+        audio_device_manager=isolated_audio_device_manager, tts_service=tts_service, asset_resolver=asset_resolver
+    )
     await manager.create_zone(MAIN_ZONE_NAME)
     yield manager
     await manager.shutdown()

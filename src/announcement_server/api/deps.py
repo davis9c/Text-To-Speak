@@ -17,6 +17,7 @@ from announcement_server.core.exceptions import PlaybackDeviceError
 from announcement_server.playback.device_manager import AudioDeviceManager
 from announcement_server.playback.manager import PlaybackManager
 from announcement_server.queueing.manager import QueueManager
+from announcement_server.scheduler.manager import SchedulerManager
 from announcement_server.zones.manager import ZoneManager
 
 # Alias tipe untuk dipakai di signature endpoint, mis:
@@ -92,3 +93,17 @@ def get_zone_manager(request: Request) -> ZoneManager:
 
 
 ZoneManagerDep = Annotated[ZoneManager, Depends(get_zone_manager)]
+
+
+def get_scheduler_manager(request: Request) -> SchedulerManager:
+    """Mengambil instance SchedulerManager tunggal (Phase 8, dibuat saat app startup).
+
+    Pola identik dengan ``get_zone_manager`` di atas — disimpan di
+    ``app.state`` (bukan lewat ``lru_cache``) karena menyimpan registry
+    jadwal yang mutable dan harus identik dengan yang dikonsumsi oleh
+    background loop scheduler maupun seluruh router.
+    """
+    return request.app.state.scheduler_manager
+
+
+SchedulerManagerDep = Annotated[SchedulerManager, Depends(get_scheduler_manager)]
