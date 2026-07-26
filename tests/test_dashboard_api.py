@@ -23,12 +23,14 @@ from announcement_server.announcement.asset_resolver import AudioAssetResolver
 from announcement_server.api.deps import (
     get_asset_resolver,
     get_connection_manager,
+    get_metrics_collector,
     get_scheduler_manager,
     get_tts_service,
     get_zone_manager,
 )
 from announcement_server.core.config import AnnouncementConfig, TTSConfig, get_settings
 from announcement_server.main import create_app
+from announcement_server.monitoring.metrics import MetricsCollector
 from announcement_server.queueing.models import AnnouncementType, QueuePriority
 from announcement_server.scheduler.manager import SchedulerManager
 from announcement_server.scheduler.models import AnnouncementSpec, ScheduleRecurrence
@@ -81,14 +83,26 @@ def connection_manager() -> ConnectionManager:
 
 
 @pytest.fixture()
+def metrics_collector() -> MetricsCollector:
+    return MetricsCollector()
+
+
+@pytest.fixture()
 async def zone_manager(
-    tts_service: TTSService, asset_resolver: AudioAssetResolver, connection_manager: ConnectionManager
+    tts_service: TTSService,
+    asset_resolver: AudioAssetResolver,
+    connection_manager: ConnectionManager,
+    metrics_collector: MetricsCollector,
 ) -> Iterator[ZoneManager]:
+    async def _fanout_event(event_type: str, data: dict) -> None:
+        await connection_manager.broadcast(event_type, data)
+        await metrics_collector.record(event_type, data)
+
     manager = ZoneManager(
         audio_device_manager=None,
         tts_service=tts_service,
         asset_resolver=asset_resolver,
-        event_publisher=connection_manager.broadcast,
+        event_publisher=_fanout_event,
     )
     await manager.create_zone(MAIN_ZONE_NAME)
     yield manager
@@ -109,6 +123,7 @@ def client(
     tts_service: TTSService,
     asset_resolver: AudioAssetResolver,
     connection_manager: ConnectionManager,
+    metrics_collector: MetricsCollector,
 ) -> Iterator[TestClient]:
     get_settings.cache_clear()
     app = create_app()
@@ -117,6 +132,7 @@ def client(
     app.dependency_overrides[get_tts_service] = lambda: tts_service
     app.dependency_overrides[get_asset_resolver] = lambda: asset_resolver
     app.dependency_overrides[get_connection_manager] = lambda: connection_manager
+    app.dependency_overrides[get_metrics_collector] = lambda: metrics_collector
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
@@ -279,3 +295,17 @@ async def test_metrics_counts_active_schedules(client: TestClient, scheduler_man
 
     body = client.get("/metrics").json()
     assert body["active_schedules_count"] == 1
+
+
+async def test_metrics_cumulative_events_survive_history_pruning(client: TestClient, zone_manager: ZoneManager) -> None:
+    """cumulative_events (Phase 11) TIDAK boleh berkurang meski riwayat item di-prune —
+    berbeda dari total_items_by_status (Phase 10) yang murni membaca registry saat ini."""
+    queue_manager = zone_manager.get_queue_manager(MAIN_ZONE_NAME)
+    item = await queue_manager.enqueue("Halo", QueuePriority.NORMAL)
+    await queue_manager.dequeue_for_processing()
+    await queue_manager.mark_completed(item.id)
+
+    body = client.get("/metrics").json()
+    assert body["cumulative_events"]["queue_changed"] >= 1
+    assert body["cumulative_events"]["finished"] == 1
+    assert body["cumulative_finished_by_reason"]["completed"] == 1

@@ -49,6 +49,11 @@ class LoggingConfig(BaseModel):
     backup_count: int = Field(default=5, description="Jumlah backup file log yang disimpan")
     json_format: bool = Field(default=False, description="Gunakan format JSON untuk log (memudahkan log aggregation)")
 
+    # --- Phase 11 (Monitoring) — log terpisah selain file utama di atas ---
+    error_filename: str = Field(default="error.log", description="File khusus log level ERROR/CRITICAL dari seluruh aplikasi")
+    playback_filename: str = Field(default="playback.log", description="File khusus log domain Playback (Phase 4/9)")
+    worker_filename: str = Field(default="worker.log", description="File khusus log domain Queue Worker/Pipeline (Phase 2/5)")
+
     @field_validator("level")
     @classmethod
     def validate_level(cls, value: str) -> str:

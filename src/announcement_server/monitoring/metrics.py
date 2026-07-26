@@ -1,0 +1,42 @@
+"""Metrics Collector (Phase 11 — Monitoring).
+
+Menghitung counter KUMULATIF sejak server start — TIDAK terpengaruh
+``queue.max_history`` (berbeda dengan ``GET /metrics`` Phase 10, yang
+murni agregasi dari registry queue SAAT INI). Memenuhi kontrak
+``EventPublisher`` (``core/events.py``) persis seperti
+``ConnectionManager.broadcast`` (Phase 9) — disuntikkan ke
+``ZoneManager`` lewat fan-out publisher di ``main.py``, tanpa mengubah
+``QueueManager``/``PlaybackManager`` sama sekali.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from collections import defaultdict
+
+from announcement_server.core.events import EVENT_FINISHED
+
+
+class MetricsCollector:
+    """Counter kumulatif per jenis event + per alasan `finished` (completed/failed)."""
+
+    def __init__(self) -> None:
+        self._event_counts: dict[str, int] = defaultdict(int)
+        self._finished_reason_counts: dict[str, int] = defaultdict(int)
+        self._lock = asyncio.Lock()
+
+    async def record(self, event_type: str, data: dict) -> None:
+        """Memenuhi kontrak ``EventPublisher`` — dipanggil untuk SETIAP event Queue/Playback (Phase 9)."""
+        async with self._lock:
+            self._event_counts[event_type] += 1
+            if event_type == EVENT_FINISHED:
+                reason = data.get("reason")
+                if reason:
+                    self._finished_reason_counts[reason] += 1
+
+    def snapshot(self) -> dict[str, dict[str, int]]:
+        """Salinan counter saat ini — aman dibaca kapan saja tanpa lock (dict baru, bukan referensi)."""
+        return {
+            "events": dict(self._event_counts),
+            "finished_by_reason": dict(self._finished_reason_counts),
+        }

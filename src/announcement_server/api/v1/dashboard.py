@@ -21,6 +21,7 @@ from announcement_server.api.deps import (
     AppStartedAtDep,
     AssetResolverDep,
     ConnectionManagerDep,
+    MetricsCollectorDep,
     SchedulerManagerDep,
     SettingsDep,
     TTSServiceDep,
@@ -132,6 +133,7 @@ async def get_metrics(
     tts_service: TTSServiceDep,
     asset_resolver: AssetResolverDep,
     connection_manager: ConnectionManagerDep,
+    metrics_collector: MetricsCollectorDep,
     started_at: AppStartedAtDep,
 ) -> MetricsResponse:
     zones = zone_manager.list_zones()
@@ -146,6 +148,7 @@ async def get_metrics(
     tts_stats = await tts_service.get_cache_stats()
     announcement_stats = await asset_resolver.get_cache_stats()
     uptime_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
+    cumulative = metrics_collector.snapshot()
 
     return MetricsResponse(
         uptime_seconds=uptime_seconds,
@@ -155,4 +158,6 @@ async def get_metrics(
         connected_websocket_clients=connection_manager.connection_count,
         tts_cache=await _build_cache_stats(settings.tts.cache_dir, tts_stats),
         announcement_cache=await _build_cache_stats(settings.announcement.converted_cache_dir, announcement_stats),
+        cumulative_events=cumulative["events"],
+        cumulative_finished_by_reason=cumulative["finished_by_reason"],
     )

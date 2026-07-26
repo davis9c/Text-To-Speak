@@ -32,6 +32,7 @@ from announcement_server.api.v1.zones import router as zones_router
 from announcement_server.core.config import AppSettings, get_settings
 from announcement_server.core.exceptions import register_exception_handlers
 from announcement_server.core.logging import setup_logging
+from announcement_server.monitoring.metrics import MetricsCollector
 from announcement_server.playback.device_manager import AudioDeviceManager
 from announcement_server.queueing.models import AnnouncementType, QueuePriority
 from announcement_server.scheduler.manager import SchedulerManager
@@ -116,6 +117,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     connection_manager = ConnectionManager()
     app.state.connection_manager = connection_manager
 
+    # Metrics Kumulatif (Phase 11): counter yang TIDAK terpengaruh pruning
+    # riwayat queue (`queue.max_history`) — lihat monitoring/metrics.py.
+    # Digabung dengan ConnectionManager di atas lewat satu fan-out publisher
+    # kecil (`_fanout_event` di bawah) supaya QueueManager/PlaybackManager
+    # tetap hanya memanggil SATU `on_event` (kontrak tidak berubah sama
+    # sekali sejak Phase 9) walau sekarang ada DUA pendengar.
+    metrics_collector = MetricsCollector()
+    app.state.metrics_collector = metrics_collector
+
+    async def _fanout_event(event_type: str, data: dict) -> None:
+        await connection_manager.broadcast(event_type, data)
+        await metrics_collector.record(event_type, data)
+
     # Multi Zone (Phase 6): ZoneManager mengorkestrasi Queue + Worker +
     # Playback + Pipeline (Phase 2/4/5/7, tidak diduplikasi) untuk setiap
     # zone. Zone "main" SELALU dibuat dari config 'queue'/'playback' di
@@ -129,7 +143,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         audio_device_manager=audio_device_manager,
         tts_service=tts_service,
         asset_resolver=asset_resolver,
-        event_publisher=connection_manager.broadcast,
+        event_publisher=_fanout_event,
         default_max_size=settings.queue.max_size,
         default_max_history=settings.queue.max_history,
         default_post_playback_delay_seconds=settings.playback.post_playback_delay_seconds,

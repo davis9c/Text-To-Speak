@@ -16,6 +16,7 @@ from fastapi import Depends, Request
 from announcement_server.announcement.asset_resolver import AudioAssetResolver
 from announcement_server.core.config import AppSettings, get_settings
 from announcement_server.core.exceptions import PlaybackDeviceError
+from announcement_server.monitoring.metrics import MetricsCollector
 from announcement_server.playback.device_manager import AudioDeviceManager
 from announcement_server.playback.manager import PlaybackManager
 from announcement_server.queueing.manager import QueueManager
@@ -157,3 +158,11 @@ def get_app_started_at(request: Request) -> datetime:
 
 
 AppStartedAtDep = Annotated[datetime, Depends(get_app_started_at)]
+
+
+def get_metrics_collector(request: Request) -> MetricsCollector:
+    """Mengambil instance MetricsCollector tunggal (Phase 11, dibuat saat app startup)."""
+    return request.app.state.metrics_collector
+
+
+MetricsCollectorDep = Annotated[MetricsCollector, Depends(get_metrics_collector)]

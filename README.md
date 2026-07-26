@@ -97,7 +97,6 @@ Contoh `type="audio"` (memutar file statis — bell/alarm/jingle/MP3/WAV apa pun
   "type": "audio",
   "file": "sounds/bell.mp3",
   "priority": "high"
-}
 ```
 
 - `type`: `tts` (default) | `audio`.

@@ -74,9 +74,19 @@ class MetricsResponse(BaseModel):
     uptime_seconds: float
     zones_count: int = Field(description="Jumlah zone terdaftar")
     total_items_by_status: dict[str, int] = Field(
-        description="Jumlah item per status (pending/processing/completed/failed/cancelled), diagregasi seluruh zone"
+        description="Jumlah item per status (pending/processing/completed/failed/cancelled) SAAT INI, "
+        "diagregasi seluruh zone — berkurang jika item lama di-prune oleh queue.max_history."
     )
     active_schedules_count: int = Field(description="Jumlah jadwal (Phase 8) yang sedang enabled")
     connected_websocket_clients: int = Field(description="Jumlah client /ws/status yang sedang terhubung (Phase 9)")
     tts_cache: CacheStatsResponse
     announcement_cache: CacheStatsResponse
+    cumulative_events: dict[str, int] = Field(
+        default_factory=dict,
+        description="(Phase 11) Jumlah KUMULATIF setiap jenis event (queue_changed/speaking/idle/pause/resume/"
+        "finished) sejak server start — TIDAK berkurang meski riwayat di-prune, berbeda dari total_items_by_status.",
+    )
+    cumulative_finished_by_reason: dict[str, int] = Field(
+        default_factory=dict,
+        description="(Phase 11) Jumlah KUMULATIF item yang selesai diproses, dipecah per alasan (completed/failed).",
+    )
