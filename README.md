@@ -5,7 +5,7 @@ Menerima request HTTP, mengantrekan pengumuman, mengubah teks menjadi suara
 (offline), memutar audio ke sistem TOA, serta mendukung Public Address (PA)
 multi-zona.
 
-> **Status:** Phase 10 — Dashboard API. Server kini menyediakan `GET /status` (snapshot Queue/Worker/Cache/Device/Zone/Current Audio), `GET /history` (riwayat lintas zone), dan `GET /metrics` (ringkasan angka) untuk monitoring/dashboard eksternal. Endpoint & perilaku Phase 1-9 tidak berubah. Lihat [Endpoint Dashboard (Phase 10)](#endpoint-dashboard-phase-10) di bawah.
+> **Status:** Phase 12 — Windows Service. Server dapat dijalankan sebagai Windows Service (auto-start saat boot, auto-restart jika crash) lewat NSSM — `install_service.bat` / `uninstall_service.bat` / `restart_service.bat`. Fase 11 (Monitoring: Error/Playback/Worker Log terpisah + metrics kumulatif) sudah aktif sebelumnya. Lihat [Windows Service (Phase 12)](#windows-service-phase-12) di bawah.
 
 ## Requirements
 
@@ -35,6 +35,17 @@ Sejak **Phase 7**, server dapat memutar file audio statis (bell/alarm/jingle) le
 3. Simpan file audio (bell/alarm/jingle/dll) di direktori `sounds/` (lihat `announcement.sounds_dir`).
 
 > Jika ffmpeg belum ter-setup, server tetap berjalan normal — file `.wav` tetap bisa diputar tanpa masalah. Hanya item bertipe `audio` dengan sumber SELAIN `.wav` yang akan berstatus `failed` saat diproses (`error_message` menjelaskan bahwa ffmpeg tidak ditemukan). Konsisten dengan prinsip graceful degradation yang sama seperti Piper di atas.
+
+## Windows Service (Phase 12)
+
+Jalankan sebagai Windows Service (auto-start saat boot, auto-restart jika crash) lewat NSSM:
+
+1. Unduh NSSM dari https://nssm.cc/download, salin `nssm.exe` ke `tools\nssm\nssm.exe` (lihat `tools/nssm/README.md`).
+2. **Run as Administrator**: `install_service.bat` — membuat venv, install dependencies, install & start service `AnnouncementServer` (auto-start Windows aktif).
+3. `restart_service.bat` — restart service (mis. setelah ubah `config/config.yaml`).
+4. `uninstall_service.bat` — stop & hapus service (venv/config tidak dihapus).
+
+Cek status: `sc query AnnouncementServer`. Log proses service: `logs\service_stdout.log` / `logs\service_stderr.log` (terpisah dari log aplikasi Phase 11 di `logs\announcement_server.log`).
 
 ## Instalasi & Menjalankan (Windows)
 
@@ -97,6 +108,7 @@ Contoh `type="audio"` (memutar file statis — bell/alarm/jingle/MP3/WAV apa pun
   "type": "audio",
   "file": "sounds/bell.mp3",
   "priority": "high"
+}
 ```
 
 - `type`: `tts` (default) | `audio`.
