@@ -15,6 +15,8 @@ import hashlib
 import logging
 from pathlib import Path
 
+from announcement_server.core.fs_stats import compute_directory_stats
+
 logger = logging.getLogger(__name__)
 
 
@@ -71,3 +73,7 @@ class AudioCache:
         await asyncio.to_thread(_write)
         logger.debug("Audio disimpan ke cache: key=%s path=%s", cache_key[:12], final_path)
         return final_path
+
+    async def get_stats(self) -> tuple[int, int]:
+        """Mengembalikan ``(jumlah_file, total_ukuran_bytes)`` cache saat ini (Phase 10 — Dashboard API)."""
+        return await asyncio.to_thread(compute_directory_stats, self._cache_dir)

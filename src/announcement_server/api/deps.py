@@ -8,16 +8,20 @@ dan agar router tidak melakukan instansiasi objek secara langsung
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import Depends, Request
 
+from announcement_server.announcement.asset_resolver import AudioAssetResolver
 from announcement_server.core.config import AppSettings, get_settings
 from announcement_server.core.exceptions import PlaybackDeviceError
 from announcement_server.playback.device_manager import AudioDeviceManager
 from announcement_server.playback.manager import PlaybackManager
 from announcement_server.queueing.manager import QueueManager
 from announcement_server.scheduler.manager import SchedulerManager
+from announcement_server.tts.service import TTSService
+from announcement_server.websocket.manager import ConnectionManager
 from announcement_server.zones.manager import ZoneManager
 
 # Alias tipe untuk dipakai di signature endpoint, mis:
@@ -107,3 +111,49 @@ def get_scheduler_manager(request: Request) -> SchedulerManager:
 
 
 SchedulerManagerDep = Annotated[SchedulerManager, Depends(get_scheduler_manager)]
+
+
+def get_tts_service(request: Request) -> TTSService:
+    """Mengambil instance TTSService tunggal (Phase 3, dibuat saat app startup).
+
+    Dipakai Dashboard API (Phase 10) untuk melaporkan statistik cache TTS
+    lewat ``GET /status``/``GET /metrics`` — TTSService sendiri tidak
+    pernah diekspos langsung sebagai endpoint sintesis (itu tetap lewat
+    Queue System, Phase 2/3).
+    """
+    return request.app.state.tts_service
+
+
+TTSServiceDep = Annotated[TTSService, Depends(get_tts_service)]
+
+
+def get_asset_resolver(request: Request) -> AudioAssetResolver:
+    """Mengambil instance AudioAssetResolver tunggal (Phase 7, dibuat saat app startup).
+
+    Dipakai Dashboard API (Phase 10) untuk melaporkan statistik cache
+    hasil konversi ffmpeg lewat ``GET /status``/``GET /metrics``.
+    """
+    return request.app.state.asset_resolver
+
+
+AssetResolverDep = Annotated[AudioAssetResolver, Depends(get_asset_resolver)]
+
+
+def get_connection_manager(request: Request) -> ConnectionManager:
+    """Mengambil instance ConnectionManager tunggal (Phase 9, dibuat saat app startup).
+
+    Dipakai Dashboard API (Phase 10) untuk melaporkan jumlah client
+    WebSocket yang sedang terhubung lewat ``GET /status``/``GET /metrics``.
+    """
+    return request.app.state.connection_manager
+
+
+ConnectionManagerDep = Annotated[ConnectionManager, Depends(get_connection_manager)]
+
+
+def get_app_started_at(request: Request) -> datetime:
+    """Waktu (UTC) server selesai startup (Phase 10) — dipakai menghitung ``uptime_seconds``."""
+    return request.app.state.started_at
+
+
+AppStartedAtDep = Annotated[datetime, Depends(get_app_started_at)]

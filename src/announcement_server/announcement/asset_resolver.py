@@ -30,6 +30,7 @@ from announcement_server.core.exceptions import (
     AudioConversionError,
     AudioConversionUnavailableError,
 )
+from announcement_server.core.fs_stats import compute_directory_stats
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,12 @@ class AudioAssetResolver:
 
         await self._convert_to_wav(source_path, cached_path)
         return str(cached_path), False
+
+    async def get_cache_stats(self) -> tuple[int, int]:
+        """Mengembalikan ``(jumlah_file, total_ukuran_bytes)`` cache hasil konversi ffmpeg saat ini
+        (Phase 10 — Dashboard API). File ``.wav`` sumber yang diputar langsung (tanpa konversi)
+        TIDAK dihitung di sini — hanya salinan hasil konversi yang benar-benar disimpan cache ini."""
+        return await asyncio.to_thread(compute_directory_stats, self._converted_cache_dir)
 
     def _resolve_source_path(self, relative_file: str) -> Path:
         """Menggabungkan ``relative_file`` ke ``sounds_dir``, MENOLAK path yang keluar dari direktori tsb.

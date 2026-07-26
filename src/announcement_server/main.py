@@ -13,6 +13,7 @@ import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import AsyncIterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -21,6 +22,7 @@ from fastapi.responses import JSONResponse
 
 from announcement_server import __version__
 from announcement_server.announcement.asset_resolver import AudioAssetResolver
+from announcement_server.api.v1.dashboard import router as dashboard_router
 from announcement_server.api.v1.health import router as health_router
 from announcement_server.api.v1.playback import router as playback_router
 from announcement_server.api.v1.queue import router as queue_router
@@ -57,6 +59,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         __version__,
         settings.app.environment,
     )
+
+    # Dashboard API (Phase 10): waktu startup dicatat di sini (seawal mungkin
+    # dalam lifespan) untuk menghitung `uptime_seconds` pada GET /status & /metrics.
+    app.state.started_at = datetime.now(timezone.utc)
 
     # Audio Device (Phase 4): di-share oleh SELURUH zone (Phase 6) karena
     # enumerasi device bersifat stateless terhadap zone mana pun. Inisialisasi
@@ -271,6 +277,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     app.include_router(zones_router)
     app.include_router(scheduler_router)
     app.include_router(websocket_router)
+    app.include_router(dashboard_router)
 
     return app
 

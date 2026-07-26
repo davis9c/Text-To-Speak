@@ -85,6 +85,10 @@ class ZoneResponse(BaseModel):
     playback_state: PlaybackState | None = Field(
         default=None, description="Status playback saat ini (idle/playing/paused). null jika sistem audio tidak tersedia di server."
     )
+    current_file: str | None = Field(
+        default=None,
+        description="Path file audio yang sedang/terakhir diputar di zone ini (Phase 10). null jika belum pernah memutar apa pun atau sistem audio tidak tersedia.",
+    )
     pending_count: int = Field(description="Jumlah item berstatus PENDING pada antrean zone ini")
     processing_count: int = Field(description="Jumlah item berstatus PROCESSING pada antrean zone ini")
 
@@ -95,6 +99,7 @@ class ZoneResponse(BaseModel):
         *,
         worker_running: bool,
         playback_state: PlaybackState | None,
+        current_file: str | None,
         pending_count: int,
         processing_count: int,
     ) -> "ZoneResponse":
@@ -102,6 +107,7 @@ class ZoneResponse(BaseModel):
             **zone.model_dump(),
             worker_running=worker_running,
             playback_state=playback_state,
+            current_file=current_file,
             pending_count=pending_count,
             processing_count=processing_count,
         )

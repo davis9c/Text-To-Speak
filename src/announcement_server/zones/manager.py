@@ -327,6 +327,15 @@ class ZoneManager:
         playback_manager = self._get_runtime(name).playback_manager
         return playback_manager.state if playback_manager is not None else None
 
+    def get_current_file(self, name: str) -> str | None:
+        """File audio yang sedang/terakhir diputar di zone ini (Phase 10 — Dashboard API).
+
+        ``None`` jika sistem audio tidak tersedia ATAU belum pernah ada
+        yang diputar sama sekali di zone ini.
+        """
+        playback_manager = self._get_runtime(name).playback_manager
+        return playback_manager.current_file if playback_manager is not None else None
+
     def _get_runtime(self, name: str) -> _ZoneRuntime:
         runtime = self._zones.get(name)
         if runtime is None:

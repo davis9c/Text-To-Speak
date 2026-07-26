@@ -61,3 +61,7 @@ class TTSService:
 
         stored_path = await self._cache.put(cache_key, processed_audio)
         return TTSResult(audio_file_path=str(stored_path), cache_hit=False)
+
+    async def get_cache_stats(self) -> tuple[int, int]:
+        """Mengembalikan ``(jumlah_file, total_ukuran_bytes)`` cache TTS saat ini (Phase 10 — Dashboard API)."""
+        return await self._cache.get_stats()

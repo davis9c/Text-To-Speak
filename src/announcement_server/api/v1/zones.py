@@ -50,7 +50,7 @@ router = APIRouter(prefix="/zones", tags=["Zones"])
 
 
 async def _build_zone_response(zone_manager: ZoneManager, name: str) -> ZoneResponse:
-    """Menggabungkan metadata Zone + status runtime (worker/playback/queue count)."""
+    """Menggabungkan metadata Zone + status runtime (worker/playback/queue count/current_file)."""
     zone = zone_manager.get_zone(name)
     queue_manager = zone_manager.get_queue_manager(name)
     pending = await queue_manager.list_items(statuses={QueueItemStatus.PENDING})
@@ -59,6 +59,7 @@ async def _build_zone_response(zone_manager: ZoneManager, name: str) -> ZoneResp
         zone,
         worker_running=zone_manager.is_worker_running(name),
         playback_state=zone_manager.get_playback_state(name),
+        current_file=zone_manager.get_current_file(name),
         pending_count=len(pending),
         processing_count=len(processing),
     )

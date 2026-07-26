@@ -5,7 +5,7 @@ Menerima request HTTP, mengantrekan pengumuman, mengubah teks menjadi suara
 (offline), memutar audio ke sistem TOA, serta mendukung Public Address (PA)
 multi-zona.
 
-> **Status:** Phase 9 — WebSocket. Server kini mem-broadcast status secara real-time TANPA POLLING lewat `/ws/status`: Queue Changed, Speaking, Idle, Pause, Resume, Finished. Endpoint & perilaku Phase 1-8 tidak berubah. Lihat [Endpoint WebSocket (Phase 9)](#endpoint-websocket-phase-9) di bawah.
+> **Status:** Phase 10 — Dashboard API. Server kini menyediakan `GET /status` (snapshot Queue/Worker/Cache/Device/Zone/Current Audio), `GET /history` (riwayat lintas zone), dan `GET /metrics` (ringkasan angka) untuk monitoring/dashboard eksternal. Endpoint & perilaku Phase 1-9 tidak berubah. Lihat [Endpoint Dashboard (Phase 10)](#endpoint-dashboard-phase-10) di bawah.
 
 ## Requirements
 
@@ -450,6 +450,21 @@ ws.onmessage = (msg) => console.log(JSON.parse(msg.data));
 > koneksi sudah putus) tidak memengaruhi client lain maupun proses
 > Queue/Playback itu sendiri — client yang bermasalah otomatis dibersihkan
 > dari daftar koneksi aktif.
+
+## Endpoint Dashboard (Phase 10)
+
+Endpoint read-only untuk monitoring/dashboard eksternal — murni agregasi dari komponen yang sudah ada, tidak ada state baru.
+
+| Method | Path         | Deskripsi                                                        |
+|--------|--------------|----------------------------------------------------------------------|
+| GET    | `/status`    | Snapshot lengkap: Queue/Worker/Device/Zone/Current Audio per zone, statistik cache, jumlah client WebSocket, uptime |
+| GET    | `/history`   | Riwayat item selesai (completed/failed/cancelled) lintas zone, terurut terbaru dulu |
+| GET    | `/metrics`   | Ringkasan angka: jumlah item per status, zone, jadwal aktif, client WebSocket, cache |
+| GET    | `/health`    | (Phase 1, tidak berubah) Health check ringan untuk watchdog/load balancer |
+
+`GET /history` mendukung query param opsional: `zone` (filter satu zone,
+404 jika tidak ada), `status` (default: seluruh status final), `limit`
+(default 100, maksimum 1000).
 
 ## Konfigurasi
 
