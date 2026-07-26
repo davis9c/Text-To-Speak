@@ -19,6 +19,12 @@ Komponen yang SENGAJA DI-SHARE lintas zone (bukan dibuat ulang per zone):
 - ``AudioAssetResolver`` (Phase 7) — membungkus cache konversi ffmpeg yang
   juga independen dari konsep zone, dengan rationale identik dengan
   ``TTSService`` di atas.
+- ``event_publisher`` (Phase 9, opsional) — implementasi ``EventPublisher``
+  (``core/events.py``, mis. ``ConnectionManager.broadcast``, lihat
+  ``websocket/manager.py``) di-share seluruh zone; ``ZoneManager``
+  membungkusnya per-zone (menambahkan field ``zone`` ke setiap payload
+  event) sebelum disuntikkan ke ``QueueManager``/``PlaybackManager``
+  masing-masing zone.
 
 --------------------------------------------------------------------------
 Keputusan desain — lock tunggal (``asyncio.Lock``) untuk operasi CRUD zone:
@@ -39,6 +45,7 @@ from datetime import datetime, timezone
 
 from announcement_server.announcement.asset_resolver import AudioAssetResolver
 from announcement_server.announcement.source_processor import AnnouncementSourceProcessor
+from announcement_server.core.events import EventPublisher
 from announcement_server.core.exceptions import (
     ValidationAppError,
     ZoneAlreadyExistsError,
@@ -94,6 +101,7 @@ class ZoneManager:
         audio_device_manager: AudioDeviceManager | None,
         tts_service: TTSService,
         asset_resolver: AudioAssetResolver,
+        event_publisher: EventPublisher | None = None,
         default_max_size: int = 100,
         default_max_history: int = 1000,
         default_post_playback_delay_seconds: float = 0.5,
@@ -101,11 +109,29 @@ class ZoneManager:
         self._audio_device_manager = audio_device_manager
         self._tts_service = tts_service
         self._asset_resolver = asset_resolver
+        self._event_publisher = event_publisher
         self._default_max_size = default_max_size
         self._default_max_history = default_max_history
         self._default_post_playback_delay_seconds = default_post_playback_delay_seconds
         self._zones: dict[str, _ZoneRuntime] = {}
         self._lock = asyncio.Lock()
+
+    def _make_zone_event_publisher(self, zone_name: str) -> EventPublisher | None:
+        """Membungkus ``event_publisher`` global (Phase 9) dengan konteks nama zone.
+
+        Mengembalikan ``None`` jika tidak ada ``event_publisher`` terpasang
+        (mis. saat ``main.py`` tidak menyuntikkan WebSocket ConnectionManager
+        sama sekali) — ``QueueManager``/``PlaybackManager`` akan memakai
+        default ``noop_event_publisher`` masing-masing.
+        """
+        if self._event_publisher is None:
+            return None
+        publisher = self._event_publisher
+
+        async def _publish_with_zone(event_type: str, data: dict) -> None:
+            await publisher(event_type, {**data, "zone": zone_name})
+
+        return _publish_with_zone
 
     # --- CRUD --------------------------------------------------------------
 
@@ -136,14 +162,22 @@ class ZoneManager:
             if name in self._zones:
                 raise ZoneAlreadyExistsError(f"Zone '{name}' sudah ada.", details={"name": name})
 
+            zone_event_publisher = self._make_zone_event_publisher(name)
+            queue_manager_kwargs = {}
+            if zone_event_publisher is not None:
+                queue_manager_kwargs["on_event"] = zone_event_publisher
             queue_manager = QueueManager(
                 max_size=max_size if max_size is not None else self._default_max_size,
                 max_history=max_history if max_history is not None else self._default_max_history,
+                **queue_manager_kwargs,
             )
 
             playback_manager: PlaybackManager | None = None
             if self._audio_device_manager is not None:
-                playback_manager = PlaybackManager(self._audio_device_manager)
+                playback_manager_kwargs = {}
+                if zone_event_publisher is not None:
+                    playback_manager_kwargs["on_event"] = zone_event_publisher
+                playback_manager = PlaybackManager(self._audio_device_manager, **playback_manager_kwargs)
                 if device_id is not None:
                     try:
                         playback_manager.select_device(device_id)

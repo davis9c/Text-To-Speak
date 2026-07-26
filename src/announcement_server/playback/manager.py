@@ -31,6 +31,18 @@ Keputusan desain — dependency injection untuk modul ``sounddevice``:
 
 Sama seperti ``AudioDeviceManager``, parameter ``sd_module`` SENGAJA ada
 supaya kelas ini bisa diuji tanpa hardware audio sungguhan.
+--------------------------------------------------------------------------
+Keputusan desain — event publishing (Phase 9, WebSocket) lintas thread:
+
+``callback()`` (di bawah, dalam ``_start_stream``) berjalan di thread
+NATIVE milik PortAudio — BUKAN event loop asyncio manapun. Memanggil
+``on_event`` (async) langsung dari sana MUSTAHIL. Solusinya:
+``asyncio.run_coroutine_threadsafe`` terhadap loop yang ditangkap saat
+``play()`` terakhir dipanggil (SELALU berjalan di event loop asyncio
+utama) — inilah pola standar untuk "menembakkan" coroutine dari thread
+lain dengan aman. Helper ``_schedule_event`` di bawah dipakai seragam
+baik dari thread native (``callback``) maupun dari method sinkron biasa
+(``pause``/``resume``) yang kebetulan berjalan di thread event loop.
 """
 
 from __future__ import annotations
@@ -44,6 +56,14 @@ from typing import Any, Protocol
 
 import numpy as np
 
+from announcement_server.core.events import (
+    EVENT_IDLE,
+    EVENT_PAUSE,
+    EVENT_RESUME,
+    EVENT_SPEAKING,
+    EventPublisher,
+    noop_event_publisher,
+)
 from announcement_server.core.exceptions import (
     AudioFileNotFoundError,
     PlaybackDeviceError,
@@ -78,9 +98,21 @@ def _default_sounddevice_module() -> SoundDeviceModule:
 class PlaybackManager:
     """Mengelola playback audio WAV ke output device, dengan pause/resume/stop."""
 
-    def __init__(self, device_manager: AudioDeviceManager, sd_module: SoundDeviceModule | None = None) -> None:
+    def __init__(
+        self,
+        device_manager: AudioDeviceManager,
+        sd_module: SoundDeviceModule | None = None,
+        *,
+        on_event: EventPublisher = noop_event_publisher,
+    ) -> None:
         self._device_manager = device_manager
         self._sd = sd_module if sd_module is not None else _default_sounddevice_module()
+        self._on_event = on_event
+        # Ditangkap ulang setiap kali `play()` dipanggil (lihat komentar
+        # desain di atas) — dipakai `_schedule_event` untuk menjembatani
+        # broadcast event dari thread native PortAudio maupun dari method
+        # sinkron (`pause`/`resume`) ke event loop asyncio yang benar.
+        self._loop: asyncio.AbstractEventLoop | None = None
 
         # `_lock` melindungi seluruh state di bawah ini. WAJIB threading.Lock
         # (BUKAN asyncio.Lock) karena diakses juga dari callback PortAudio
@@ -121,6 +153,18 @@ class PlaybackManager:
     def selected_device_id(self) -> int | None:
         return self._selected_device_id
 
+    def _schedule_event(self, event_type: str, data: dict) -> None:
+        """Menjadwalkan pemanggilan ``on_event`` (async) dari kode SINKRON, aman dipanggil
+        dari thread mana pun — lihat catatan desain pada docstring modul di atas."""
+        loop = self._loop
+        if loop is None:
+            return
+        try:
+            asyncio.run_coroutine_threadsafe(self._on_event(event_type, data), loop)
+        except RuntimeError:
+            # Loop sudah ditutup (mis. aplikasi sedang shutdown) — bukan error fatal, abaikan.
+            logger.debug("Tidak dapat menjadwalkan event '%s': event loop sudah tidak berjalan.", event_type)
+
     # --- Device selection ----------------------------------------------------
 
     def select_device(self, device_id: int) -> None:
@@ -137,9 +181,14 @@ class PlaybackManager:
         if not path.is_file():
             raise AudioFileNotFoundError(f"File audio tidak ditemukan: {file_path}")
 
+        # Ditangkap di sini (bukan __init__) karena `play()` SELALU dipanggil dari event
+        # loop asyncio yang sedang aktif melayani aplikasi — lihat catatan desain di atas.
+        self._loop = asyncio.get_running_loop()
+
         frames, channels, samplerate = await asyncio.to_thread(self._load_wav, path)
         await asyncio.to_thread(self._start_stream, frames, channels, samplerate, str(path))
         logger.info("Playback dimulai: file=%s", path)
+        await self._on_event(EVENT_SPEAKING, {"file": str(path)})
 
     def pause(self) -> None:
         """Menjeda playback yang sedang berjalan. Melempar PlaybackStateError jika tidak sedang PLAYING."""
@@ -150,7 +199,9 @@ class PlaybackManager:
                     details={"current_state": self._state.value},
                 )
             self._state = PlaybackState.PAUSED
+            current_file = self._current_file
         logger.info("Playback dijeda.")
+        self._schedule_event(EVENT_PAUSE, {"file": current_file})
 
     def resume(self) -> None:
         """Melanjutkan playback yang dijeda. Melempar PlaybackStateError jika tidak sedang PAUSED."""
@@ -161,7 +212,9 @@ class PlaybackManager:
                     details={"current_state": self._state.value},
                 )
             self._state = PlaybackState.PLAYING
+            current_file = self._current_file
         logger.info("Playback dilanjutkan.")
+        self._schedule_event(EVENT_RESUME, {"file": current_file})
 
     async def stop(self) -> None:
         """Menghentikan playback sepenuhnya (idempotent — aman dipanggil walau sedang IDLE)."""
@@ -209,6 +262,7 @@ class PlaybackManager:
                     outdata.fill(0)
                     self._state = PlaybackState.IDLE
                     self._finished_event.set()
+                    self._schedule_event(EVENT_IDLE, {"file": self._current_file})
                     raise self._sd.CallbackStop
                 chunk = min(frame_count, remaining)
                 outdata[:chunk] = self._frames[self._position : self._position + chunk]
@@ -237,6 +291,7 @@ class PlaybackManager:
 
     def _stop_stream(self) -> None:
         with self._lock:
+            was_active = self._state != PlaybackState.IDLE
             stream = self._stream
             self._stream = None
             self._frames = None
@@ -255,6 +310,11 @@ class PlaybackManager:
                 stream.close()
             except Exception:  # noqa: BLE001 - kegagalan cleanup tidak boleh membuat request /stop gagal
                 logger.exception("Gagal menghentikan stream audio dengan bersih.")
+
+        # `was_active` menghindari event IDLE yang berulang/berisik saat stop()
+        # dipanggil pada manager yang memang sudah IDLE (operasi idempotent).
+        if was_active:
+            self._schedule_event(EVENT_IDLE, {"file": None})
 
     @staticmethod
     def _load_wav(path: Path) -> tuple[np.ndarray, int, int]:

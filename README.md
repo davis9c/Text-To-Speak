@@ -5,7 +5,7 @@ Menerima request HTTP, mengantrekan pengumuman, mengubah teks menjadi suara
 (offline), memutar audio ke sistem TOA, serta mendukung Public Address (PA)
 multi-zona.
 
-> **Status:** Phase 8 — Scheduler. Server kini dapat memicu pengumuman otomatis berbasis waktu (Daily/Weekly/One Time) lewat REST API `/scheduler`, meng-enqueue lewat mekanisme antrean yang sudah ada (Phase 2/6/7) tanpa jalur pemrosesan baru. Endpoint & perilaku Phase 1-7 tidak berubah. Lihat [Endpoint Scheduler (Phase 8)](#endpoint-scheduler-phase-8) di bawah.
+> **Status:** Phase 9 — WebSocket. Server kini mem-broadcast status secara real-time TANPA POLLING lewat `/ws/status`: Queue Changed, Speaking, Idle, Pause, Resume, Finished. Endpoint & perilaku Phase 1-8 tidak berubah. Lihat [Endpoint WebSocket (Phase 9)](#endpoint-websocket-phase-9) di bawah.
 
 ## Requirements
 
@@ -410,6 +410,47 @@ sama seperti contoh `zones:`). Jadwal statis maupun yang dibuat lewat API
 sama-sama diproses oleh `SchedulerManager` yang sama; tidak ada
 perbedaan perilaku.
 
+## Endpoint WebSocket (Phase 9)
+
+`ws://localhost:8000/ws/status` — status real-time TANPA POLLING. Setelah
+terhubung, client menerima satu snapshot awal (status seluruh zone),
+lalu setiap event yang terjadi secara push (server-initiated), tanpa
+client perlu mengirim apa pun.
+
+Format setiap pesan:
+
+```json
+{ "event": "<nama_event>", "timestamp": "2026-07-25T10:00:00+00:00", "data": { ... } }
+```
+
+Event yang dikirim (sesuai ROADMAP.md):
+
+| Event            | Kapan dikirim                                              | Contoh `data`                                          |
+|------------------|--------------------------------------------------------------|------------------------------------------------------------|
+| `snapshot`       | Sekali, tepat setelah koneksi terbuka                          | `{"zones": [...]}` (sama seperti response `GET /zones`)      |
+| `queue_changed`  | Setiap perubahan status item (enqueue/proses/batal/hapus)        | `{"reason": "enqueued", "item_id": "...", "status": "pending", "zone": "main"}` |
+| `speaking`       | Playback mulai memutar audio                                     | `{"file": "cache/audio/....wav", "zone": "main"}`             |
+| `idle`           | Playback berhenti/selesai (baik alami maupun `stop()`)              | `{"file": null, "zone": "main"}`                              |
+| `pause`          | Playback dijeda                                                     | `{"file": "...", "zone": "main"}`                             |
+| `resume`         | Playback dilanjutkan                                                | `{"file": "...", "zone": "main"}`                             |
+| `finished`       | Satu item selesai diproses (completed ATAU failed)                  | `{"reason": "completed", "item_id": "...", "zone": "main"}`    |
+
+Setiap event (kecuali `snapshot`) memiliki field `zone` — nama zone (Phase
+6) yang menjadi sumber event tsb, karena `/ws/status` bersifat global
+(mem-broadcast SELURUH zone dalam satu koneksi, bukan per-zone).
+
+Contoh memakai `websocat`/browser console:
+
+```js
+const ws = new WebSocket("ws://localhost:8000/ws/status");
+ws.onmessage = (msg) => console.log(JSON.parse(msg.data));
+```
+
+> Broadcast bersifat *best-effort*: kegagalan mengirim ke satu client (mis.
+> koneksi sudah putus) tidak memengaruhi client lain maupun proses
+> Queue/Playback itu sendiri — client yang bermasalah otomatis dibersihkan
+> dari daftar koneksi aktif.
+
 ## Konfigurasi
 
 Konfigurasi utama ada di [`config/config.yaml`](config/config.yaml). Semua
@@ -468,6 +509,10 @@ Test dibagi beberapa lapisan:
 - `tests/test_scheduler_models.py` — unit test murni `compute_next_run`/`parse_time_of_day`/`parse_run_date` (Phase 8): daily (selalu ada next run, boundary tepat di waktu jadwal dianggap sudah lewat), weekly (hari yang sama minggu ini/depan tergantung waktu sudah lewat atau belum, daftar hari kosong → `None`), once (masa depan vs sudah lewat vs `run_date` kosong).
 - `tests/test_scheduler_manager.py` — unit test `SchedulerManager` (Phase 8): CRUD jadwal, validasi (`weekly` tanpa `days_of_week`, `once` tanpa/dengan `run_date` sudah lewat, `announcement` tidak konsisten dengan `type`), `trigger_now` (tidak memengaruhi `next_run_at` terjadwal, melempar error untuk zone tujuan yang tidak ada), dan background loop SUNGGUHAN (bukan mock) yang benar-benar memicu jadwal `once` secara otomatis lalu menonaktifkannya.
 - `tests/test_scheduler_api.py` — endpoint HTTP `/scheduler` end-to-end dengan dependency override (`FakeEngine`, tidak butuh Piper asli), memverifikasi seluruh skenario create/get/update/delete/trigger beserta validasi 422/404.
+- `tests/test_connection_manager.py` — unit test `ConnectionManager` (Phase 9): connect/disconnect registry, broadcast ke seluruh client, pembersihan koneksi stale otomatis.
+- `tests/test_queue_manager_events.py` — unit test event emission (Phase 9) pada `QueueManager`: `queue_changed`/`finished` terkirim dengan payload benar di setiap perubahan status, tidak terkirim untuk item yang sudah dibatalkan/tidak ditemukan, default `noop_event_publisher` tidak mengubah perilaku Phase 1-8.
+- `tests/test_playback_manager_events.py` — unit test event emission (Phase 9) pada `PlaybackManager`: `speaking`/`pause`/`resume`/`idle` terkirim di titik yang benar (termasuk simulasi frame audio habis secara alami lewat callback native, bukan hanya lewat `stop()`).
+- `tests/test_websocket_status_api.py` — end-to-end `/ws/status` dengan dependency override: snapshot awal saat koneksi dibuka, broadcast `queue_changed` real-time saat `POST /zones/{name}/speak`/`DELETE /queue/{id}`, banyak client menerima event yang sama, registry koneksi bersih setelah disconnect.
 
 ## Struktur Project
 
@@ -478,7 +523,8 @@ announcement-server/
 │   ├── core/
 │   │   ├── config.py             # Pydantic v2 settings (YAML + env override): App, Server, Logging, TTS, Playback, Queue, Announcement (Phase 7), Zones (Phase 6), Scheduler (Phase 8, SchedulerConfig + dict[str, ScheduleDefinition])
 │   │   ├── logging.py            # Setup logging (rotating file handler)
-│   │   └── exceptions.py         # Custom exception hierarchy + global handler (+ Zone* Phase 6, + Audio*/Announcement* Phase 7, + Schedule*/InvalidScheduleError Phase 8)
+│   │   ├── exceptions.py         # Custom exception hierarchy + global handler (+ Zone* Phase 6, + Audio*/Announcement* Phase 7, + Schedule*/InvalidScheduleError Phase 8)
+│   │   └── events.py             # (Phase 9) Kontrak EventPublisher + noop_event_publisher + nama event (EVENT_*) — dipakai QueueManager/PlaybackManager, diimplementasikan oleh websocket/manager.py
 │   ├── api/
 │   │   ├── deps.py               # Dependency Injection providers (Settings, QueueManager, AudioDeviceManager, PlaybackManager, ZoneManager Phase 6, SchedulerManager Phase 8)
 │   │   └── v1/
@@ -486,11 +532,12 @@ announcement-server/
 │   │       ├── queue.py           # Router: /speak, /queue, /queue/{id}, /clear (+ type=tts|audio sejak Phase 7)
 │   │       ├── playback.py        # Router: /devices, /device, /pause, /resume, /stop
 │   │       ├── zones.py           # Router (Phase 6): /zones, /zones/{name}, /zones/{name}/queue, /zones/{name}/device, /zones/{name}/speak
-│   │       └── scheduler.py       # Router (Phase 8): /scheduler, /scheduler/{id}, /scheduler/{id}/trigger
+│   │       ├── scheduler.py       # Router (Phase 8): /scheduler, /scheduler/{id}, /scheduler/{id}/trigger
+│   │       └── websocket.py       # Router (Phase 9): WebSocket /ws/status — snapshot awal + broadcast real-time (reuse _build_zone_response dari zones.py)
 │   ├── queueing/                 # Domain Queue System (murni, tidak terikat FastAPI)
 │   │   ├── models.py              # QueueItem (+ field TTS + AnnouncementType/source_file Phase 7), QueuePriority, QueueItemStatus, DEFAULT_ACTIVE_STATUSES (dipakai bersama queue.py & zones.py)
-│   │   ├── manager.py             # QueueManager (asyncio.PriorityQueue + registry; enqueue() + param announcement_type/source_file sejak Phase 7)
-│   │   ├── worker.py              # QueueWorker (Phase 2, TIDAK diubah sejak Phase 3/4/5/6/7)
+│   │   ├── manager.py             # QueueManager (asyncio.PriorityQueue + registry; enqueue() + param announcement_type/source_file sejak Phase 7; emit event via on_event sejak Phase 9)
+│   │   ├── worker.py              # QueueWorker (Phase 2, TIDAK diubah sejak Phase 3/4/5/6/7/9)
 │   │   ├── tts_processor.py       # TTSQueueProcessor — jembatan QueueWorker <-> TTSService (Phase 3), satu instance per zone sejak Phase 6
 │   │   └── pipeline_processor.py  # AnnouncementPipelineProcessor — Queue→Cache/Generate→Playback→Delay→Berikutnya (Phase 5) + volume_gain per-zone (Phase 6); Stage 2 diisi AnnouncementSourceProcessor sejak Phase 7 (kontrak ItemProcessor identik, kelas ini TIDAK diubah)
 │   ├── announcement/              # Domain Announcement Engine (Phase 7, murni tidak terikat FastAPI/Queue)
@@ -507,13 +554,15 @@ announcement-server/
 │   ├── playback/                 # Domain Audio Playback (Phase 4; dipakai lewat pipeline sejak Phase 5; satu instance per zone sejak Phase 6)
 │   │   ├── models.py              # AudioDevice, PlaybackState
 │   │   ├── device_manager.py      # AudioDeviceManager (enumerasi & validasi output device, di-share seluruh zone)
-│   │   └── manager.py             # PlaybackManager (callback-based stream: play/pause/resume/stop/wait_until_finished)
+│   │   └── manager.py             # PlaybackManager (callback-based stream: play/pause/resume/stop/wait_until_finished; emit event via on_event sejak Phase 9, dijembatani dari thread native PortAudio lewat run_coroutine_threadsafe)
 │   ├── zones/                    # Domain Multi Zone (Phase 6, murni tidak terikat FastAPI)
 │   │   ├── models.py              # Zone (metadata: name/enabled/device_id/volume/timestamps), MAIN_ZONE_NAME
-│   │   └── manager.py             # ZoneManager — orkestrasi create/update/delete/lookup zone, membungkus QueueManager+QueueWorker+PlaybackManager+AnnouncementSourceProcessor(Phase 7)+Pipeline per zone
+│   │   └── manager.py             # ZoneManager — orkestrasi create/update/delete/lookup zone, membungkus QueueManager+QueueWorker+PlaybackManager+AnnouncementSourceProcessor(Phase 7)+Pipeline per zone; membungkus event_publisher (Phase 9) dengan konteks nama zone
 │   ├── scheduler/                 # Domain Scheduler (Phase 8, murni tidak terikat FastAPI)
 │   │   ├── models.py              # ScheduleRecurrence, AnnouncementSpec, ScheduleEntry, compute_next_run (fungsi murni), parse_time_of_day/parse_run_date
 │   │   └── manager.py             # SchedulerManager — registry jadwal (CRUD, pola sama ZoneManager) + background loop yang meng-enqueue lewat QueueManager.enqueue() milik zone tujuan (tidak diduplikasi)
+│   ├── websocket/                 # Domain WebSocket (Phase 9, murni tidak terikat FastAPI kecuali tipe WebSocket)
+│   │   └── manager.py             # ConnectionManager — registry client WebSocket + broadcast(event_type, data), memenuhi kontrak EventPublisher (core/events.py)
 │   └── schemas/
 │       ├── health.py              # Response schema /health
 │       ├── queue.py                # Request/response schema Queue + TTS + type/file (Phase 7)

@@ -38,6 +38,16 @@ kali sebuah item mencapai status final, manager memangkas item final
 tertua jika jumlah riwayat melebihi ``max_history``. (Penyimpanan riwayat
 permanen ke storage eksternal adalah scope Phase 10 - Dashboard/History,
 bukan Phase 2.)
+Keputusan desain #4 — Event publishing (Phase 9, WebSocket):
+
+``QueueManager`` menerima ``on_event`` opsional (default no-op, lihat
+``core/events.py``) yang dipanggil SETELAH lock dilepas pada setiap
+perubahan status item (enqueue/dequeue/completed/failed/cancelled/clear).
+``QueueManager`` sendiri TIDAK tahu apa-apa soal WebSocket — ia hanya
+memanggil sebuah callable generik, memenuhi Dependency Inversion
+Principle. Implementasi broadcast sungguhan (``websocket/manager.py``)
+disuntikkan oleh ``ZoneManager`` saat membuat instance ini, persis pola
+yang sama dengan ``TTSService``/``AudioAssetResolver`` (Phase 3/7).
 """
 
 from __future__ import annotations
@@ -49,6 +59,7 @@ import uuid
 from collections.abc import Iterable
 from datetime import datetime, timezone
 
+from announcement_server.core.events import EVENT_FINISHED, EVENT_QUEUE_CHANGED, EventPublisher, noop_event_publisher
 from announcement_server.core.exceptions import (
     QueueFullError,
     QueueItemNotCancellableError,
@@ -79,10 +90,21 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _item_event_payload(item: QueueItem, *, reason: str) -> dict:
+    """Payload event ringkas untuk satu perubahan item — dipakai di seluruh titik emit di bawah."""
+    return {
+        "reason": reason,
+        "item_id": str(item.id),
+        "status": item.status.value,
+        "priority": item.priority.value,
+        "text": item.text,
+    }
+
+
 class QueueManager:
     """Mengelola antrean pengumuman: enqueue, dequeue, cancel, list, clear."""
 
-    def __init__(self, max_size: int = 100, max_history: int = 1000) -> None:
+    def __init__(self, max_size: int = 100, max_history: int = 1000, *, on_event: EventPublisher = noop_event_publisher) -> None:
         # Tuple berisi (bobot_priority, sequence, item_id_str).
         # `sequence` (counter monotonic) menjamin urutan FIFO untuk item
         # dengan priority sama, sekaligus mencegah Python mencoba
@@ -95,6 +117,7 @@ class QueueManager:
         self._lock = asyncio.Lock()
         self._max_size = max_size
         self._max_history = max_history
+        self._on_event = on_event
 
     @property
     def max_size(self) -> int:
@@ -155,7 +178,9 @@ class QueueManager:
             await self._queue.put((weight, sequence, str(item.id)))
 
             logger.info("Item masuk antrean: id=%s priority=%s", item.id, priority.value)
-            return item.model_copy()
+            result = item.model_copy()
+        await self._on_event(EVENT_QUEUE_CHANGED, _item_event_payload(result, reason="enqueued"))
+        return result
 
     async def dequeue_for_processing(self) -> QueueItem | None:
         """Dipanggil oleh QueueWorker.
@@ -174,7 +199,9 @@ class QueueManager:
                 return None
             item.status = QueueItemStatus.PROCESSING
             item.updated_at = _utcnow()
-            return item.model_copy()
+            result = item.model_copy()
+        await self._on_event(EVENT_QUEUE_CHANGED, _item_event_payload(result, reason="processing"))
+        return result
 
     async def update_tts_result(self, item_id: uuid.UUID, *, audio_file_path: str, cache_hit: bool) -> None:
         """Menyimpan hasil sintesis TTS (path file audio + status cache) ke item.
@@ -195,17 +222,23 @@ class QueueManager:
 
     async def mark_completed(self, item_id: uuid.UUID) -> None:
         """Menandai item selesai diproses. Dipanggil oleh QueueWorker."""
+        result: QueueItem | None = None
         async with self._lock:
             item = self._registry.get(item_id)
             if item is not None:
                 item.status = QueueItemStatus.COMPLETED
                 item.updated_at = _utcnow()
                 logger.info("Item selesai diproses: id=%s", item_id)
+                result = item.model_copy()
             self._prune_history_locked()
         self._queue.task_done()
+        if result is not None:
+            await self._on_event(EVENT_QUEUE_CHANGED, _item_event_payload(result, reason="completed"))
+            await self._on_event(EVENT_FINISHED, _item_event_payload(result, reason="completed"))
 
     async def mark_failed(self, item_id: uuid.UUID, error_message: str) -> None:
         """Menandai item gagal diproses. Dipanggil oleh QueueWorker."""
+        result: QueueItem | None = None
         async with self._lock:
             item = self._registry.get(item_id)
             if item is not None:
@@ -213,8 +246,12 @@ class QueueManager:
                 item.updated_at = _utcnow()
                 item.error_message = error_message
                 logger.warning("Item gagal diproses: id=%s error=%s", item_id, error_message)
+                result = item.model_copy()
             self._prune_history_locked()
         self._queue.task_done()
+        if result is not None:
+            await self._on_event(EVENT_QUEUE_CHANGED, _item_event_payload(result, reason="failed"))
+            await self._on_event(EVENT_FINISHED, _item_event_payload(result, reason="failed"))
 
     async def list_items(self, statuses: Iterable[QueueItemStatus] | None = None) -> list[QueueItem]:
         """Mengembalikan salinan item, diurutkan berdasarkan priority lalu waktu masuk.
@@ -253,7 +290,9 @@ class QueueManager:
             item.updated_at = _utcnow()
             logger.info("Item antrean dibatalkan: id=%s", item_id)
             self._prune_history_locked()
-            return item.model_copy()
+            result = item.model_copy()
+        await self._on_event(EVENT_QUEUE_CHANGED, _item_event_payload(result, reason="cancelled"))
+        return result
 
     async def clear(self) -> int:
         """Membatalkan seluruh item PENDING. Mengembalikan jumlah item yang dibatalkan."""
@@ -267,7 +306,9 @@ class QueueManager:
                     cleared += 1
             logger.info("Antrean dibersihkan: %d item dibatalkan", cleared)
             self._prune_history_locked()
-            return cleared
+        if cleared > 0:
+            await self._on_event(EVENT_QUEUE_CHANGED, {"reason": "cleared", "cleared_count": cleared})
+        return cleared
 
     @staticmethod
     def position_of(item_id: uuid.UUID, pending_items_ordered: list[QueueItem]) -> int | None:

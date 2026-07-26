@@ -25,6 +25,7 @@ from announcement_server.api.v1.health import router as health_router
 from announcement_server.api.v1.playback import router as playback_router
 from announcement_server.api.v1.queue import router as queue_router
 from announcement_server.api.v1.scheduler import router as scheduler_router
+from announcement_server.api.v1.websocket import router as websocket_router
 from announcement_server.api.v1.zones import router as zones_router
 from announcement_server.core.config import AppSettings, get_settings
 from announcement_server.core.exceptions import register_exception_handlers
@@ -34,6 +35,7 @@ from announcement_server.queueing.models import AnnouncementType, QueuePriority
 from announcement_server.scheduler.manager import SchedulerManager
 from announcement_server.scheduler.models import AnnouncementSpec, ScheduleRecurrence, parse_run_date, parse_time_of_day
 from announcement_server.tts.service import TTSService
+from announcement_server.websocket.manager import ConnectionManager
 from announcement_server.zones.manager import ZoneManager
 from announcement_server.zones.models import MAIN_ZONE_NAME
 
@@ -98,6 +100,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     asset_resolver = AudioAssetResolver(settings.announcement)
     app.state.asset_resolver = asset_resolver
 
+    # WebSocket Status (Phase 9): ConnectionManager di-share seluruh zone
+    # (murni infrastruktur pengiriman pesan, tidak terikat konsep zone sama
+    # sekali — rationale identik dengan AudioDeviceManager/TTSService di
+    # atas). Disuntikkan sebagai `event_publisher` ke ZoneManager di bawah,
+    # yang lalu membungkusnya per-zone (menambahkan field `zone`) sebelum
+    # diteruskan ke QueueManager/PlaybackManager masing-masing zone — lihat
+    # core/events.py & websocket/manager.py.
+    connection_manager = ConnectionManager()
+    app.state.connection_manager = connection_manager
+
     # Multi Zone (Phase 6): ZoneManager mengorkestrasi Queue + Worker +
     # Playback + Pipeline (Phase 2/4/5/7, tidak diduplikasi) untuk setiap
     # zone. Zone "main" SELALU dibuat dari config 'queue'/'playback' di
@@ -111,6 +123,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         audio_device_manager=audio_device_manager,
         tts_service=tts_service,
         asset_resolver=asset_resolver,
+        event_publisher=connection_manager.broadcast,
         default_max_size=settings.queue.max_size,
         default_max_history=settings.queue.max_history,
         default_post_playback_delay_seconds=settings.playback.post_playback_delay_seconds,
@@ -257,6 +270,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     app.include_router(playback_router)
     app.include_router(zones_router)
     app.include_router(scheduler_router)
+    app.include_router(websocket_router)
 
     return app
 
