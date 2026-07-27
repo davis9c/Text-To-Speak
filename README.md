@@ -5,7 +5,7 @@ Menerima request HTTP, mengantrekan pengumuman, mengubah teks menjadi suara
 (offline), memutar audio ke sistem TOA, serta mendukung Public Address (PA)
 multi-zona.
 
-> **Status:** Phase 12 — Windows Service. Server dapat dijalankan sebagai Windows Service (auto-start saat boot, auto-restart jika crash) lewat NSSM — `install_service.bat` / `uninstall_service.bat` / `restart_service.bat`. Fase 11 (Monitoring: Error/Playback/Worker Log terpisah + metrics kumulatif) sudah aktif sebelumnya. Lihat [Windows Service (Phase 12)](#windows-service-phase-12) di bawah.
+> **Status:** Phase 13 — Testing. Test suite (pytest) mencakup Queue, Worker, API, Cache, Playback, Zone, Scheduler, WebSocket, Config, dan Exception handling — 37 file test, coverage target minimal 80% (`pytest-cov`, lihat `.coveragerc`). Jalankan `pytest` untuk laporan coverage otomatis.
 
 ## Requirements
 

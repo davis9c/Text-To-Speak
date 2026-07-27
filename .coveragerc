@@ -1,0 +1,22 @@
+[run]
+source = announcement_server
+branch = True
+omit =
+    */tests/*
+    */__pycache__/*
+    */venv/*
+
+[report]
+show_missing = True
+precision = 2
+skip_empty = True
+fail_under = 80
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    def __repr__
+    \.\.\.
+
+[html]
+directory = htmlcov
