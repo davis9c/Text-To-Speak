@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="id">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Announcement Server — API & WebSocket Tester</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #222;
+            margin: 0
+        }
+
+        .wrap {
+            max-width: 1100px;
+            margin: 22px auto;
+            padding: 0 15px
+        }
+
+        .card {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 12px 0
+        }
+
+        .row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center
+        }
+
+        input,
+        select,
+        textarea,
+        button {
+            font: inherit;
+            padding: 8px;
+            border: 1px solid #bbb;
+            border-radius: 6px
+        }
+
+        input,
+        select {
+            min-width: 150px
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 80px;
+            box-sizing: border-box
+        }
+
+        button {
+            cursor: pointer
+        }
+
+        .ok {
+            color: #16803c;
+            font-weight: bold
+        }
+
+        .bad {
+            color: #b42318;
+            font-weight: bold
+        }
+
+        .muted {
+            color: #666;
+            font-size: 13px
+        }
+
+        pre {
+            background: #111;
+            color: #eee;
+            padding: 12px;
+            border-radius: 7px;
+            overflow: auto;
+            max-height: 300px
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse
+        }
+
+        td,
+        th {
+            padding: 7px;
+            border-bottom: 1px solid #ddd;
+            text-align: left
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <h1>Announcement Server — Tester</h1>
+
+        <div class="card">
+            <h2>Connection</h2>
+            <div class="row">
+                <label>Base URL <input id="base" value="http://localhost:8000"></label>
+                <button onclick="health()">Health</button>
+                <button onclick="connectWS()">Connect WS</button>
+                <button onclick="disconnectWS()">Disconnect WS</button>
+                <span id="wsState" class="bad">● WebSocket disconnected</span>
+            </div>
+            <p class="muted">WebSocket endpoint aktual: <code>/ws/status</code>. Server mengirim snapshot lalu push
+                event; client tidak perlu mengirim command.</p>
+        </div>
+
+        <div class="card">
+            <h2>Speak / TTS</h2>
+            <textarea id="text">Pengujian sistem pengumuman. Selamat datang.</textarea>
+            <div class="row" style="margin-top:8px">
+                <label>Zone <select id="zone">
+                        <option value="main">main</option>
+                    </select></label>
+                <label>Type <select id="type">
+                        <option value="tts">tts</option>
+                        <option value="audio">audio</option>
+                    </select></label>
+                <label>Priority <select id="priority">
+                        <option>normal</option>
+                        <option>urgent</option>
+                        <option>high</option>
+                        <option>low</option>
+                    </select></label>
+                <label>Voice <input id="voice" placeholder="default"></label>
+                <label>Speed <input id="speed" type="number" min=".5" max="2" step=".1" value="1"></label>
+                <label>Pitch <input id="pitch" type="number" min=".5" max="2" step=".1" value="1"></label>
+                <label>Volume <input id="volume" type="number" min="0" max="2" step=".1" value="1"></label>
+            </div>
+            <div class="row" style="margin-top:8px">
+                <input id="file" placeholder="Untuk audio: sounds/bell.mp3" style="min-width:300px">
+                <button onclick="speak()">POST /speak</button>
+                <button onclick="speakZone()">POST /zones/{name}/speak</button>
+            </div>
+            <p class="muted">Untuk TTS, text wajib. Untuk audio, file wajib. Response 201 berarti masuk queue, bukan
+                berarti audio sudah selesai.</p>
+        </div>
+
+        <div class="card">
+            <h2>Queue</h2>
+            <div class="row">
+                <button onclick="queue()">GET /queue</button>
+                <button onclick="history()">GET /history</button>
+                <button onclick="clearQueue()">POST /clear</button>
+                <input id="itemId" placeholder="UUID item">
+                <button onclick="cancelItem()">DELETE /queue/{item_id}</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Playback — Zone main</h2>
+            <div class="row">
+                <button onclick="devices()">GET /devices</button>
+                <button onclick="pause()">POST /pause</button>
+                <button onclick="resume()">POST /resume</button>
+                <button onclick="stopPlayback()">POST /stop</button>
+            </div>
+            <pre id="deviceOutput"></pre>
+        </div>
+
+        <div class="card">
+            <h2>Zones</h2>
+            <div class="row">
+                <button onclick="zones()">GET /zones</button>
+                <input id="newZone" placeholder="nama zone, mis. lobby">
+                <input id="deviceId" type="number" placeholder="device_id (opsional)">
+                <button onclick="createZone()">POST /zones</button>
+            </div>
+            <div class="row" style="margin-top:8px">
+                <input id="zoneName" placeholder="nama zone">
+                <input id="zoneVolume" type="number" min="0" max="2" step=".1" placeholder="volume">
+                <select id="zoneEnabled">
+                    <option value="true">enabled=true</option>
+                    <option value="false">enabled=false</option>
+                </select>
+                <button onclick="updateZone()">PUT /zones/{name}</button>
+                <button onclick="deleteZone()">DELETE /zones/{name}</button>
+                <button onclick="zoneQueue()">GET /zones/{name}/queue</button>
+                <button onclick="zoneDevice()">POST /zones/{name}/device</button>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Zone</th>
+                        <th>Enabled</th>
+                        <th>Device</th>
+                        <th>Volume</th>
+                        <th>Worker</th>
+                        <th>Playback</th>
+                    </tr>
+                </thead>
+                <tbody id="zoneTable"></tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h2>Scheduler</h2>
+            <div class="row">
+                <button onclick="schedules()">GET /scheduler</button>
+                <input id="scheduleId" placeholder="UUID schedule">
+                <button onclick="triggerSchedule()">POST /scheduler/{id}/trigger</button>
+            </div>
+            <p class="muted">Jadwal dibuat dari server/config atau melalui endpoint create. Tombol trigger dipakai untuk
+                testing tanpa menunggu jam jadwal.</p>
+        </div>
+
+        <div class="card">
+            <h2>Monitoring</h2>
+            <div class="row">
+                <button onclick="status()">GET /status</button>
+                <button onclick="metrics()">GET /metrics</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Last HTTP response</h2>
+            <pre id="response">{}</pre>
+        </div>
+
+        <div class="card">
+            <h2>WebSocket events</h2>
+            <button onclick="clearLog()">Clear</button>
+            <pre id="log"></pre>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        const $ = id => document.getElementById(id);
+        function base() {return $('base').value.replace(/\/+$/, '')}
+        function show(x) {$('response').textContent = typeof x === 'string' ? x : JSON.stringify(x, null, 2)}
+        function log(x) {$('log').textContent += `[${new Date().toLocaleTimeString()}] ${typeof x === 'string' ? x : JSON.stringify(x)}\n`; $('log').scrollTop = $('log').scrollHeight}
+        async function req(path, method = 'GET', body) {
+            try {
+                const r = await fetch(base() + path, {method, headers: body ? {'Content-Type': 'application/json'} : {}, body: body ? JSON.stringify(body) : undefined});
+                const t = await r.text(); let d; try {d = JSON.parse(t)} catch {d = t}
+                show({http_status: r.status, request_id: r.headers.get('X-Request-ID'), data: d});
+                if (!r.ok) log(`HTTP ${r.status} ${method} ${path}`);
+                return d;
+            } catch (e) {show({error: String(e), hint: "Jika HTML dibuka sebagai file://, browser dapat memblokir fetch karena server belum mengaktifkan CORS. Jalankan tester dari origin yang diizinkan/aktifkan CORS."}); log("HTTP ERROR: " + e)}
+        }
+        function connectWS() {
+            disconnectWS(); const u = base().replace(/^http/, 'ws') + '/ws/status'; log("CONNECT " + u);
+            ws = new WebSocket(u);
+            ws.onopen = () => {$('wsState').textContent = '● WebSocket connected'; $('wsState').className = 'ok'; log('WS CONNECTED')};
+            ws.onmessage = e => {try {log(JSON.parse(e.data))} catch {log(e.data)} };
+            ws.onerror = () => log('WS ERROR');
+            ws.onclose = () => {$('wsState').textContent = '● WebSocket disconnected'; $('wsState').className = 'bad'; log('WS CLOSED')};
+        }
+        function disconnectWS() {if (ws) {ws.close(); ws = null} }
+        function clearLog() {$('log').textContent = ''}
+        function speakBody() {
+            let b = {type: $('type').value, priority: $('priority').value, voice: $('voice').value || null, speed: +$('speed').value, pitch: +$('pitch').value, volume: +$('volume').value};
+            if (b.type === 'tts') {b.text = $('text').value; b.file = null} else {b.file = $('file').value; b.text = $('text').value || null} return b
+        }
+        async function speak() {let d = await req('/speak', 'POST', speakBody()); if (d?.id) $('itemId').value = d.id}
+        async function speakZone() {let n = $('zone').value; let d = await req('/zones/' + encodeURIComponent(n) + '/speak', 'POST', speakBody()); if (d?.id) $('itemId').value = d.id}
+        async function health() {await req('/health')}
+        async function queue() {await req('/queue')}
+        async function history() {await req('/history')}
+        async function clearQueue() {await req('/clear', 'POST')}
+        async function cancelItem() {await req('/queue/' + encodeURIComponent($('itemId').value), 'DELETE')}
+        async function devices() {let d = await req('/devices'); $('deviceOutput').textContent = JSON.stringify(d, null, 2)}
+        async function pause() {await req('/pause', 'POST')}
+        async function resume() {await req('/resume', 'POST')}
+        async function stopPlayback() {await req('/stop', 'POST')}
+        async function zones() {
+            let d = await req('/zones'), a = d?.zones || []; $('zone').innerHTML = '';
+            $('zoneTable').innerHTML = '';
+            a.forEach(z => {
+                $('zone').insertAdjacentHTML('beforeend', `<option value="${esc(z.name)}">${esc(z.name)}</option>`);
+                $('zoneTable').insertAdjacentHTML('beforeend', `<tr><td>${esc(z.name)}</td><td>${z.enabled}</td><td>${z.device_id ?? '-'}</td><td>${z.volume}</td><td>${z.worker_running}</td><td>${z.playback_state ?? '-'}</td></tr>`);
+            }); return d
+        }
+        async function createZone() {
+            let b = {name: $('newZone').value.trim(), device_id: null, volume: 1, enabled: true};
+            if ($('deviceId').value) b.device_id = +$('deviceId').value;
+            await req('/zones', 'POST', b); await zones()
+        }
+        async function updateZone() {
+            let n = $('zoneName').value.trim(), b = {};
+            if ($('zoneVolume').value) b.volume = +$('zoneVolume').value;
+            b.enabled = $('zoneEnabled').value === 'true'; await req('/zones/' + encodeURIComponent(n), 'PUT', b); await zones()
+        }
+        async function deleteZone() {let n = $('zoneName').value.trim(); await req('/zones/' + encodeURIComponent(n), 'DELETE'); await zones()}
+        async function zoneQueue() {let n = $('zoneName').value.trim(); await req('/zones/' + encodeURIComponent(n) + '/queue')}
+        async function zoneDevice() {let n = $('zoneName').value.trim(); let id = $('deviceId').value; await req('/zones/' + encodeURIComponent(n) + '/device', 'POST', {device_id: +id}); await zones()}
+        async function schedules() {await req('/scheduler')}
+        async function triggerSchedule() {let id = $('scheduleId').value.trim(); await req('/scheduler/' + encodeURIComponent(id) + '/trigger', 'POST')}
+        async function status() {await req('/status')}
+        async function metrics() {await req('/metrics')}
+        function esc(s) {return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]))}
+        zones(); devices();
+    </script>
+</body>
+
+</html>

@@ -39,6 +39,12 @@ class ServerConfig(BaseModel):
     port: int = Field(default=8000, ge=1, le=65535, description="Port HTTP server")
     reload: bool = Field(default=False, description="Auto-reload (hanya untuk development)")
     workers: int = Field(default=1, ge=1, description="Jumlah worker Uvicorn")
+    cors_allow_origins: list[str] = Field(
+        default_factory=lambda: ["*"],
+        description="Daftar origin yang diizinkan mengakses API lewat browser (CORS), mis. untuk dashboard/tester "
+        "HTML terpisah (index.html) yang dibuka dari file:// atau origin/port lain. '*' = izinkan semua origin "
+        "(cocok untuk development/tooling internal; batasi ke domain spesifik untuk production).",
+    )
 
 
 class LoggingConfig(BaseModel):

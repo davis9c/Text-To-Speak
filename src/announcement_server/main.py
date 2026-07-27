@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
 from announcement_server import __version__
@@ -303,6 +304,23 @@ def create_app(config_path: str | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
+
+    # CORS: dibutuhkan agar tool berbasis browser (mis. dashboard/tester
+    # HTML terpisah seperti index.html) yang dibuka dari file:// atau
+    # origin/port lain bisa memanggil API ini — tanpa ini, browser
+    # memblokir SEMUA fetch() ke server (termasuk GET sederhana) karena
+    # response tidak membawa header Access-Control-Allow-Origin.
+    # `allow_credentials=False` supaya `allow_origins=["*"]` tetap valid
+    # (spesifikasi CORS melarang wildcard origin dikombinasikan dengan
+    # credentials) — API ini tidak memakai cookie/session, jadi aman.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.server.cors_allow_origins,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["X-Request-ID", "X-Process-Time-Ms"],
+    )
 
     # Performance (Phase 14): kompresi response JSON yang lebih besar (mis.
     # GET /history, /openapi.json) — mengurangi bandwidth tanpa mengubah

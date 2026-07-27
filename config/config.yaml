@@ -18,6 +18,8 @@ server:
   port: 8000
   reload: false
   workers: 1
+  cors_allow_origins: ["*"]    # Izinkan browser (mis. dashboard/tester HTML terpisah) memanggil API ini.
+                                # "*" = semua origin (dev/tooling). Ganti ke daftar domain spesifik untuk production.
 
 logging:
   level: "INFO"                # DEBUG | INFO | WARNING | ERROR | CRITICAL
