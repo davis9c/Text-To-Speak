@@ -25,6 +25,8 @@ import yaml
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
+from announcement_server.core.exceptions import ConfigurationError
+
 # Lokasi default file konfigurasi. Bisa di-override lewat env var CONFIG_PATH
 # (ditangani di YamlConfigSettingsSource di bawah).
 DEFAULT_CONFIG_PATH = Path("config/config.yaml")
@@ -112,6 +114,17 @@ class TTSConfig(BaseModel):
         default="cache/audio",
         description="Direktori penyimpanan cache audio hasil TTS (key = SHA256 dari parameter sintesis).",
     )
+    max_retries: int = Field(
+        default=2, ge=0, description="Jumlah percobaan ulang (Phase 14) jika sintesis Piper gagal transien."
+    )
+    retry_backoff_seconds: float = Field(
+        default=1.0, ge=0, description="Delay dasar (detik) antar percobaan ulang, naik eksponensial (Phase 14)."
+    )
+    cache_max_age_days: float | None = Field(
+        default=None,
+        ge=0,
+        description="Phase 14: file cache lebih tua dari ini (hari) dihapus saat cache cleanup. null = tidak ada batas usia.",
+    )
 
 
 class PlaybackConfig(BaseModel):
@@ -162,6 +175,17 @@ class AnnouncementConfig(BaseModel):
         default=30.0,
         gt=0,
         description="Batas waktu maksimum proses konversi ffmpeg untuk satu file sebelum dianggap gagal.",
+    )
+    max_retries: int = Field(
+        default=2, ge=0, description="Jumlah percobaan ulang (Phase 14) jika konversi ffmpeg gagal transien."
+    )
+    retry_backoff_seconds: float = Field(
+        default=1.0, ge=0, description="Delay dasar (detik) antar percobaan ulang, naik eksponensial (Phase 14)."
+    )
+    cache_max_age_days: float | None = Field(
+        default=None,
+        ge=0,
+        description="Phase 14: file cache lebih tua dari ini (hari) dihapus saat cache cleanup. null = tidak ada batas usia.",
     )
 
 
@@ -267,6 +291,17 @@ class ScheduleDefinition(BaseModel):
     announcement: ScheduleAnnouncementDefinition
 
 
+class MaintenanceConfig(BaseModel):
+    """Konfigurasi Production Hardening (Phase 14)."""
+
+    cache_cleanup_on_startup: bool = Field(
+        default=False, description="Jika true, cache TTS & Announcement dibersihkan otomatis saat server startup."
+    )
+    shutdown_timeout_seconds: float = Field(
+        default=15.0, gt=0, description="Batas waktu maksimum graceful shutdown sebelum dipaksa berhenti."
+    )
+
+
 class QueueConfig(BaseModel):
     """Konfigurasi Queue System (Phase 2)."""
 
@@ -342,6 +377,7 @@ class AppSettings(BaseSettings):
         "meng-override default tsb (device_id/enabled/volume) tanpa mengubah max_size/max_history-nya.",
     )
     scheduler: SchedulerConfig = Field(default_factory=SchedulerConfig)
+    maintenance: MaintenanceConfig = Field(default_factory=MaintenanceConfig)
     schedules: dict[str, ScheduleDefinition] = Field(
         default_factory=dict,
         description="Definisi Schedule statis (Phase 8), key = nama jadwal (unik). Dibuat otomatis saat "
@@ -373,3 +409,32 @@ def get_settings(config_path: str | None = None) -> AppSettings:
     if config_path:
         return AppSettings(yaml_config_path=config_path)  # type: ignore[call-arg]
     return AppSettings()
+
+
+def validate_runtime_config(settings: AppSettings) -> None:
+    """Validasi tambahan di luar tipe/range Pydantic (Phase 14 — Production Hardening).
+
+    Dipanggil sekali saat app startup (``main.py``) — memastikan direktori
+    yang dibutuhkan (cache, sounds, log) BENAR-BENAR bisa dibuat/ditulis
+    SEBELUM server mulai menerima traffic (fail-fast), bukan gagal
+    belakangan di tengah pemrosesan request pertama yang membutuhkannya.
+    Melempar ``ConfigurationError`` (bukan exception generik) jika gagal.
+    """
+    directories = {
+        "tts.cache_dir": settings.tts.cache_dir,
+        "announcement.sounds_dir": settings.announcement.sounds_dir,
+        "announcement.converted_cache_dir": settings.announcement.converted_cache_dir,
+        "logging.directory": settings.logging.directory,
+    }
+    for key, directory in directories.items():
+        path = Path(directory)
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            probe_file = path / ".write_test"
+            probe_file.write_text("ok")
+            probe_file.unlink()
+        except OSError as exc:
+            raise ConfigurationError(
+                f"Direktori untuk '{key}' ('{directory}') tidak bisa dibuat/ditulis: {exc}",
+                details={"config_key": key, "directory": directory},
+            ) from exc

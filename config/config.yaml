@@ -34,6 +34,9 @@ tts:
   default_voice: "en_US-lessac-medium"          # Voice default jika request tidak menyebutkan voice
   generation_timeout_seconds: 30.0              # Timeout sintesis per item
   cache_dir: "cache/audio"                      # Direktori cache audio (key: SHA256)
+  max_retries: 2                                # Percobaan ulang (Phase 14) jika sintesis Piper gagal transien
+  retry_backoff_seconds: 1.0                    # Delay dasar antar percobaan ulang (naik eksponensial)
+  cache_max_age_days: null                      # Hapus file cache lebih tua dari N hari saat cleanup. null = tidak ada batas
 
 playback:
   default_device_id: null                       # null = pakai default output device Windows. Lihat GET /devices untuk id.
@@ -58,6 +61,9 @@ announcement:
   ffmpeg_binary_path: "ffmpeg"                   # Path ke executable ffmpeg, atau "ffmpeg" jika sudah ada di PATH
   converted_cache_dir: "cache/announcement_audio" # Cache hasil konversi ffmpeg ke WAV
   conversion_timeout_seconds: 30.0               # Timeout konversi ffmpeg per file
+  max_retries: 2                                 # Percobaan ulang (Phase 14) jika konversi ffmpeg gagal transien
+  retry_backoff_seconds: 1.0                     # Delay dasar antar percobaan ulang (naik eksponensial)
+  cache_max_age_days: null                       # Hapus file cache lebih tua dari N hari saat cleanup. null = tidak ada batas
 
 # =============================================================================
 # Zones (Phase 6 — Multi Zone)
@@ -81,6 +87,13 @@ zones:
     device_id: null
     enabled: false
     volume: 1.0
+
+# =============================================================================
+# Production Hardening (Phase 14)
+# =============================================================================
+maintenance:
+  cache_cleanup_on_startup: false   # true = bersihkan cache TTS/Announcement otomatis saat startup
+  shutdown_timeout_seconds: 15.0    # Batas waktu maksimum graceful shutdown
 
 # =============================================================================
 # Scheduler (Phase 8)

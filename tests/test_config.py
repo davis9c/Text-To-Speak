@@ -177,3 +177,40 @@ def test_scheduler_config_defaults() -> None:
 def test_schedule_definition_requires_recurrence_and_time_of_day() -> None:
     with pytest.raises(ValueError):
         ScheduleDefinition(announcement={"type": "tts", "text": "x"})  # type: ignore[call-arg]
+
+
+# --- validate_runtime_config (Phase 14) -----------------------------------------------------
+
+
+def test_validate_runtime_config_creates_missing_directories(tmp_path: Path) -> None:
+    from announcement_server.core.config import validate_runtime_config
+
+    settings = AppSettings(
+        yaml_config_path=str(tmp_path / "tidak-ada.yaml"),  # type: ignore[call-arg]
+        tts={"cache_dir": str(tmp_path / "cache_tts")},
+        announcement={"sounds_dir": str(tmp_path / "sounds"), "converted_cache_dir": str(tmp_path / "cache_ann")},
+        logging={"directory": str(tmp_path / "logs")},
+    )
+
+    validate_runtime_config(settings)  # tidak boleh melempar
+
+    assert (tmp_path / "cache_tts").is_dir()
+    assert (tmp_path / "sounds").is_dir()
+    assert (tmp_path / "cache_ann").is_dir()
+    assert (tmp_path / "logs").is_dir()
+
+
+def test_validate_runtime_config_raises_configuration_error_when_path_is_a_file(tmp_path: Path) -> None:
+    from announcement_server.core.config import validate_runtime_config
+    from announcement_server.core.exceptions import ConfigurationError
+
+    blocking_file = tmp_path / "blocked"
+    blocking_file.write_text("bukan folder")
+
+    settings = AppSettings(
+        yaml_config_path=str(tmp_path / "tidak-ada.yaml"),  # type: ignore[call-arg]
+        tts={"cache_dir": str(blocking_file / "cache_tts")},
+    )
+
+    with pytest.raises(ConfigurationError):
+        validate_runtime_config(settings)

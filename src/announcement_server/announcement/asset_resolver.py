@@ -30,7 +30,8 @@ from announcement_server.core.exceptions import (
     AudioConversionError,
     AudioConversionUnavailableError,
 )
-from announcement_server.core.fs_stats import compute_directory_stats
+from announcement_server.core.fs_stats import cleanup_directory, compute_directory_stats
+from announcement_server.core.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,9 @@ class AudioAssetResolver:
         self._converted_cache_dir = Path(config.converted_cache_dir)
         self._ffmpeg_binary_path = config.ffmpeg_binary_path
         self._timeout_seconds = config.conversion_timeout_seconds
+        self._max_retries = config.max_retries
+        self._retry_backoff_seconds = config.retry_backoff_seconds
+        self._cache_max_age_days = config.cache_max_age_days
 
     async def resolve(self, relative_file: str) -> tuple[str, bool]:
         """Mengembalikan ``(path_wav_absolut, cache_hit)`` siap dipakai ``PlaybackManager.play()``.
@@ -79,7 +83,16 @@ class AudioAssetResolver:
             logger.debug("Audio asset cache hit: %s -> %s", relative_file, cached_path)
             return str(cached_path), True
 
-        await self._convert_to_wav(source_path, cached_path)
+        # Retry (Phase 14) hanya untuk AudioConversionError (kegagalan ffmpeg yang
+        # transien) — AudioConversionUnavailableError (binary tidak ada) TIDAK
+        # di-retry karena kegagalannya permanen (mengulang tidak akan membantu).
+        await retry_with_backoff(
+            lambda: self._convert_to_wav(source_path, cached_path),
+            max_retries=self._max_retries,
+            backoff_seconds=self._retry_backoff_seconds,
+            retry_on=(AudioConversionError,),
+            operation_name=f"ffmpeg convert({source_path.name})",
+        )
         return str(cached_path), False
 
     async def get_cache_stats(self) -> tuple[int, int]:
@@ -87,6 +100,14 @@ class AudioAssetResolver:
         (Phase 10 — Dashboard API). File ``.wav`` sumber yang diputar langsung (tanpa konversi)
         TIDAK dihitung di sini — hanya salinan hasil konversi yang benar-benar disimpan cache ini."""
         return await asyncio.to_thread(compute_directory_stats, self._converted_cache_dir)
+
+    async def cleanup_cache(self, *, max_age_days: float | None = None) -> tuple[int, int]:
+        """Membersihkan cache hasil konversi ffmpeg lebih tua dari ``max_age_days`` (Phase 14).
+
+        ``max_age_days=None`` (default) memakai ``announcement.cache_max_age_days`` dari config.
+        """
+        effective_max_age = max_age_days if max_age_days is not None else self._cache_max_age_days
+        return await asyncio.to_thread(cleanup_directory, self._converted_cache_dir, max_age_days=effective_max_age)
 
     def _resolve_source_path(self, relative_file: str) -> Path:
         """Menggabungkan ``relative_file`` ke ``sounds_dir``, MENOLAK path yang keluar dari direktori tsb.

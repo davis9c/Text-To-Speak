@@ -17,6 +17,22 @@ from collections import defaultdict
 from announcement_server.core.events import EVENT_FINISHED
 
 
+def get_process_memory_mb() -> float | None:
+    """Mengembalikan penggunaan memori RSS proses saat ini dalam MB (Phase 14 — Memory Leak Check).
+
+    ``None`` jika ``psutil`` tidak terpasang — graceful degradation, sama
+    seperti dependensi opsional lain (Piper/ffmpeg) di project ini. Pantau
+    nilainya lewat GET /metrics dari waktu ke waktu untuk mendeteksi
+    kebocoran memori (RSS yang terus naik tanpa henti).
+    """
+    try:
+        import psutil
+    except ImportError:
+        return None
+    process = psutil.Process()
+    return process.memory_info().rss / (1024 * 1024)
+
+
 class MetricsCollector:
     """Counter kumulatif per jenis event + per alasan `finished` (completed/failed)."""
 

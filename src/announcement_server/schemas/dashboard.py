@@ -90,3 +90,8 @@ class MetricsResponse(BaseModel):
         default_factory=dict,
         description="(Phase 11) Jumlah KUMULATIF item yang selesai diproses, dipecah per alasan (completed/failed).",
     )
+    memory_usage_mb: float | None = Field(
+        default=None,
+        description="(Phase 14) Penggunaan memori RSS proses saat ini (MB) — pantau nilainya dari waktu ke waktu "
+        "untuk mendeteksi kebocoran memori. null jika `psutil` tidak terpasang.",
+    )

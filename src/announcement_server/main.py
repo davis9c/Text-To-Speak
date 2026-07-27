@@ -9,6 +9,7 @@ Menggunakan pola *application factory* (``create_app``) agar:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -19,17 +20,19 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.middleware.gzip import GZipMiddleware
 
 from announcement_server import __version__
 from announcement_server.announcement.asset_resolver import AudioAssetResolver
 from announcement_server.api.v1.dashboard import router as dashboard_router
 from announcement_server.api.v1.health import router as health_router
+from announcement_server.api.v1.maintenance import router as maintenance_router
 from announcement_server.api.v1.playback import router as playback_router
 from announcement_server.api.v1.queue import router as queue_router
 from announcement_server.api.v1.scheduler import router as scheduler_router
 from announcement_server.api.v1.websocket import router as websocket_router
 from announcement_server.api.v1.zones import router as zones_router
-from announcement_server.core.config import AppSettings, get_settings
+from announcement_server.core.config import AppSettings, get_settings, validate_runtime_config
 from announcement_server.core.exceptions import register_exception_handlers
 from announcement_server.core.logging import setup_logging
 from announcement_server.monitoring.metrics import MetricsCollector
@@ -64,6 +67,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Dashboard API (Phase 10): waktu startup dicatat di sini (seawal mungkin
     # dalam lifespan) untuk menghitung `uptime_seconds` pada GET /status & /metrics.
     app.state.started_at = datetime.now(timezone.utc)
+
+    # Config Validation (Phase 14): fail-fast SEBELUM server mulai menerima
+    # traffic jika direktori penting (cache/sounds/logs) tidak bisa
+    # dibuat/ditulis — melempar ConfigurationError, ditangkap uvicorn sebagai
+    # startup failure (bukan gagal belakangan di tengah request pertama).
+    validate_runtime_config(settings)
 
     # Audio Device (Phase 4): di-share oleh SELURUH zone (Phase 6) karena
     # enumerasi device bersifat stateless terhadap zone mana pun. Inisialisasi
@@ -107,6 +116,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     asset_resolver = AudioAssetResolver(settings.announcement)
     app.state.asset_resolver = asset_resolver
 
+    # Cache Cleanup (Phase 14): opsional, dikontrol lewat
+    # maintenance.cache_cleanup_on_startup. Kegagalan cleanup TIDAK BOLEH
+    # menggagalkan startup server (best-effort, di-log saja).
+    if settings.maintenance.cache_cleanup_on_startup:
+        try:
+            tts_deleted, tts_freed = await tts_service.cleanup_cache()
+            announcement_deleted, announcement_freed = await asset_resolver.cleanup_cache()
+            logger.info(
+                "Cache cleanup saat startup: tts=%d file (%d bytes), announcement=%d file (%d bytes)",
+                tts_deleted,
+                tts_freed,
+                announcement_deleted,
+                announcement_freed,
+            )
+        except Exception:  # noqa: BLE001 - kegagalan cleanup tidak boleh menggagalkan startup
+            logger.exception("Cache cleanup saat startup gagal, dilewati.")
+
     # WebSocket Status (Phase 9): ConnectionManager di-share seluruh zone
     # (murni infrastruktur pengiriman pesan, tidak terikat konsep zone sama
     # sekali — rationale identik dengan AudioDeviceManager/TTSService di
@@ -127,8 +153,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.metrics_collector = metrics_collector
 
     async def _fanout_event(event_type: str, data: dict) -> None:
-        await connection_manager.broadcast(event_type, data)
-        await metrics_collector.record(event_type, data)
+        # Exception Handling (Phase 14): kegagalan SATU listener (mis. bug di
+        # MetricsCollector) tidak boleh menggagalkan listener lain ATAUPUN
+        # proses Queue/Playback yang memanggil `on_event` ini.
+        try:
+            await connection_manager.broadcast(event_type, data)
+        except Exception:  # noqa: BLE001
+            logger.exception("ConnectionManager.broadcast gagal untuk event '%s'.", event_type)
+        try:
+            await metrics_collector.record(event_type, data)
+        except Exception:  # noqa: BLE001
+            logger.exception("MetricsCollector.record gagal untuk event '%s'.", event_type)
 
     # Multi Zone (Phase 6): ZoneManager mengorkestrasi Queue + Worker +
     # Playback + Pipeline (Phase 2/4/5/7, tidak diduplikasi) untuk setiap
@@ -230,8 +265,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
-    await scheduler_manager.shutdown()
-    await zone_manager.shutdown()
+    # Graceful Shutdown (Phase 14): dibatasi `maintenance.shutdown_timeout_seconds`
+    # supaya satu komponen yang macet (mis. task worker tidak merespons cancel)
+    # tidak membuat proses shutdown menggantung selamanya — uvicorn/NSSM (Phase 12)
+    # pada akhirnya akan memaksa terminate proses jika ini juga timeout.
+    async def _graceful_shutdown() -> None:
+        await scheduler_manager.shutdown()
+        await zone_manager.shutdown()
+
+    try:
+        await asyncio.wait_for(_graceful_shutdown(), timeout=settings.maintenance.shutdown_timeout_seconds)
+    except TimeoutError:
+        logger.warning(
+            "Graceful shutdown melebihi batas waktu %.1fs, sebagian resource mungkin tidak berhenti bersih.",
+            settings.maintenance.shutdown_timeout_seconds,
+        )
     logger.info("Shutting down %s", settings.app.name)
 
 
@@ -255,6 +303,11 @@ def create_app(config_path: str | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
+
+    # Performance (Phase 14): kompresi response JSON yang lebih besar (mis.
+    # GET /history, /openapi.json) — mengurangi bandwidth tanpa mengubah
+    # perilaku endpoint sama sekali (transparan bagi client HTTP standar).
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     @app.middleware("http")
     async def add_request_id_and_timing(request: Request, call_next):  # type: ignore[no-untyped-def]
@@ -292,6 +345,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     app.include_router(scheduler_router)
     app.include_router(websocket_router)
     app.include_router(dashboard_router)
+    app.include_router(maintenance_router)
 
     return app
 

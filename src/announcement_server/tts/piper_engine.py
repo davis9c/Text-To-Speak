@@ -33,6 +33,7 @@ from announcement_server.core.exceptions import (
     TTSGenerationError,
     VoiceNotFoundError,
 )
+from announcement_server.core.retry import retry_with_backoff
 from announcement_server.tts.engine_base import TTSEngine
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,8 @@ class PiperEngine(TTSEngine):
         self._binary_path = Path(config.piper_binary_path)
         self._models_dir = Path(config.piper_models_dir)
         self._timeout_seconds = config.generation_timeout_seconds
+        self._max_retries = config.max_retries
+        self._retry_backoff_seconds = config.retry_backoff_seconds
 
         # Sengaja TIDAK melempar exception di sini walau binary belum ada.
         # Server tetap harus bisa start & endpoint lain (health, queue)
@@ -62,6 +65,19 @@ class PiperEngine(TTSEngine):
             )
 
     async def synthesize(self, *, text: str, voice: str, speed: float) -> bytes:
+        # Retry (Phase 14) hanya untuk TTSGenerationError (kegagalan proses Piper yang
+        # transien, mis. exit code non-zero sesaat) — TTSEngineNotAvailableError (binary
+        # tidak ada) dan VoiceNotFoundError (model tidak ada) TIDAK di-retry karena
+        # mengulang tidak akan mengubah hasil (kegagalan permanen).
+        return await retry_with_backoff(
+            lambda: self._synthesize_once(text=text, voice=voice, speed=speed),
+            max_retries=self._max_retries,
+            backoff_seconds=self._retry_backoff_seconds,
+            retry_on=(TTSGenerationError,),
+            operation_name=f"Piper synthesize(voice={voice})",
+        )
+
+    async def _synthesize_once(self, *, text: str, voice: str, speed: float) -> bytes:
         model_path = self._models_dir / f"{voice}.onnx"
         model_config_path = self._models_dir / f"{voice}.onnx.json"
         if not model_path.exists() or not model_config_path.exists():

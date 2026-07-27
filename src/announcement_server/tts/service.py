@@ -65,3 +65,11 @@ class TTSService:
     async def get_cache_stats(self) -> tuple[int, int]:
         """Mengembalikan ``(jumlah_file, total_ukuran_bytes)`` cache TTS saat ini (Phase 10 — Dashboard API)."""
         return await self._cache.get_stats()
+
+    async def cleanup_cache(self, *, max_age_days: float | None = None) -> tuple[int, int]:
+        """Membersihkan cache TTS lebih tua dari ``max_age_days`` (Phase 14).
+
+        ``max_age_days=None`` (default) memakai ``tts.cache_max_age_days`` dari config.
+        """
+        effective_max_age = max_age_days if max_age_days is not None else self._config.cache_max_age_days
+        return await self._cache.cleanup(max_age_days=effective_max_age)

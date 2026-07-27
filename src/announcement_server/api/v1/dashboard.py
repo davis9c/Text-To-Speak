@@ -28,6 +28,7 @@ from announcement_server.api.deps import (
     ZoneManagerDep,
 )
 from announcement_server.api.v1.zones import _build_zone_response
+from announcement_server.monitoring.metrics import get_process_memory_mb
 from announcement_server.queueing.models import FINISHED_STATUSES, QueueItemStatus
 from announcement_server.schemas.dashboard import (
     CacheStatsResponse,
@@ -160,4 +161,5 @@ async def get_metrics(
         announcement_cache=await _build_cache_stats(settings.announcement.converted_cache_dir, announcement_stats),
         cumulative_events=cumulative["events"],
         cumulative_finished_by_reason=cumulative["finished_by_reason"],
+        memory_usage_mb=get_process_memory_mb(),
     )

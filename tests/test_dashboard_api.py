@@ -309,3 +309,12 @@ async def test_metrics_cumulative_events_survive_history_pruning(client: TestCli
     assert body["cumulative_events"]["queue_changed"] >= 1
     assert body["cumulative_events"]["finished"] == 1
     assert body["cumulative_finished_by_reason"]["completed"] == 1
+
+
+def test_metrics_includes_memory_usage_field(client: TestClient) -> None:
+    """(Phase 14) `memory_usage_mb` harus hadir di response — null jika psutil tidak terpasang,
+    angka positif jika terpasang. Kedua kondisi valid, jadi hanya diperiksa key-nya ada."""
+    body = client.get("/metrics").json()
+    assert "memory_usage_mb" in body
+    if body["memory_usage_mb"] is not None:
+        assert body["memory_usage_mb"] > 0

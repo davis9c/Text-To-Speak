@@ -57,3 +57,10 @@ def test_openapi_schema_is_generated(client: TestClient) -> None:
 def test_docs_page_available(client: TestClient) -> None:
     response = client.get("/docs")
     assert response.status_code == 200
+
+
+def test_large_response_is_gzip_compressed(client: TestClient) -> None:
+    """(Phase 14) Response cukup besar (openapi.json) harus dikompresi saat client mendukung gzip."""
+    response = client.get("/openapi.json", headers={"Accept-Encoding": "gzip"})
+    assert response.status_code == 200
+    assert response.headers.get("content-encoding") == "gzip"

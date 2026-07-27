@@ -5,7 +5,7 @@ Menerima request HTTP, mengantrekan pengumuman, mengubah teks menjadi suara
 (offline), memutar audio ke sistem TOA, serta mendukung Public Address (PA)
 multi-zona.
 
-> **Status:** Phase 13 — Testing. Test suite (pytest) mencakup Queue, Worker, API, Cache, Playback, Zone, Scheduler, WebSocket, Config, dan Exception handling — 37 file test, coverage target minimal 80% (`pytest-cov`, lihat `.coveragerc`). Jalankan `pytest` untuk laporan coverage otomatis.
+> **Status:** Phase 14 — Production Hardening. Graceful shutdown (timeout), retry otomatis (Piper/ffmpeg), cache cleanup (`POST /maintenance/cache/cleanup`), config validation fail-fast, memory leak check (`memory_usage_mb` di `/metrics`), GZip compression. Lihat `config/config.yaml` bagian `maintenance:`.
 
 ## Requirements
 
