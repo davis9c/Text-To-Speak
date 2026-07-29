@@ -1,64 +1,38 @@
 # Announcement Server
 
-Production Ready Text-to-Speech Announcement Server berbasis Python untuk Windows.
-Menerima request HTTP, mengantrekan pengumuman, mengubah teks menjadi suara
-(offline), memutar audio ke sistem TOA, serta mendukung Public Address (PA)
-multi-zona.
+Server pengumuman Text-to-Speech offline yang siap produksi untuk sistem Public Address (PA/TOA) berbasis Windows. Server ini menyediakan HTTP API untuk mengantrekan pengumuman, mensintesis suara secara lokal (tanpa ketergantungan cloud), memutar audio ke perangkat output yang dipilih, serta mendukung banyak zona audio independen, pengumuman terjadwal, dan status real-time lewat WebSocket.
 
-> **Status:** Phase 14 — Production Hardening. Graceful shutdown (timeout), retry otomatis (Piper/ffmpeg), cache cleanup (`POST /maintenance/cache/cleanup`), config validation fail-fast, memory leak check (`memory_usage_mb` di `/metrics`), GZip compression. Lihat `config/config.yaml` bagian `maintenance:`.
+## Fitur
 
-## Requirements
+- **Text-to-Speech lewat [Piper](https://github.com/rhasspy/piper)** — sintesis suara sepenuhnya offline dengan voice, kecepatan, pitch, dan volume yang dapat dikonfigurasi.
+- **Playback audio statis** — memutar file suara yang sudah ada (bell, alarm, jingle, WAV/MP3/dst) berdampingan dengan pengumuman TTS.
+- **Antrean berprioritas** — pengumuman diproses berdasarkan urutan prioritas (`urgent` > `high` > `normal` > `low`), lalu FIFO.
+- **Audio multi-zona** — menjalankan beberapa jalur audio independen (queue + worker + output device) dari satu instance server, masing-masing dengan volume sendiri.
+- **Scheduler** — memicu pengumuman otomatis secara harian, mingguan, atau sekali waktu.
+- **Status WebSocket real-time** — update berbasis push (tanpa polling) untuk perubahan antrean, status playback, dan item yang selesai diproses.
+- **Endpoint dashboard/monitoring** — status, riwayat, dan metrik teragregasi untuk dashboard eksternal.
+- **Cache audio** — audio hasil sintesis dan konversi disimpan di cache (berbasis SHA256) sehingga pengumuman yang berulang tidak perlu menjalankan ulang TTS/ffmpeg.
+- **Graceful degradation** — server tetap dapat berjalan dan melayani sebagian besar endpoint meskipun Piper, ffmpeg, atau driver audio belum terpasang/salah konfigurasi.
+- **Dukungan Windows Service** — dapat dipasang sebagai Windows Service yang auto-start dan auto-restart lewat NSSM.
 
-- Python 3.11+
-- Windows 10/11 (development/production) — kompatibel juga di Linux/macOS untuk development.
-- **Piper TTS** (untuk fitur Text-to-Speech, Phase 3 ke atas) — lihat bagian [Setup Piper (TTS Engine)](#setup-piper-tts-engine) di bawah.
-- **ffmpeg** (opsional, Phase 7) — hanya dibutuhkan untuk memutar file audio statis berformat SELAIN `.wav` (mis. MP3). Lihat [Setup ffmpeg (opsional, Announcement Engine)](#setup-ffmpeg-opsional-announcement-engine) di bawah.
+## Kebutuhan
 
-## Setup Piper (TTS Engine)
+- Python 3.11+ (Windows 10/11 direkomendasikan untuk produksi; Linux/macOS didukung untuk development)
+- Binary [Piper TTS](https://github.com/rhasspy/piper) + minimal satu voice model (wajib untuk pengumuman TTS — lihat [Setup Piper](#setup-piper-tts-engine))
+- [ffmpeg](https://ffmpeg.org/download.html) (opsional — hanya dibutuhkan untuk memutar file audio statis yang belum berformat `.wav`)
+- Perangkat output audio yang tersedia (opsional — server tetap berjalan tanpanya, namun endpoint playback tidak akan berfungsi)
 
-Server ini memakai [Piper](https://github.com/rhasspy/piper) sebagai engine TTS offline default. Piper **tidak disertakan** dalam repository ini (ukurannya besar & berlisensi terpisah) — unduh secara manual:
+## Instalasi
 
-1. Unduh binary Piper untuk Windows dari [rilis resmi Piper](https://github.com/rhasspy/piper/releases) (pilih `piper_windows_amd64.zip` atau setara).
-2. Ekstrak sehingga `piper.exe` berada di `engines/piper/piper.exe` (relatif terhadap root project), atau sesuaikan path lewat `tts.piper_binary_path` di `config/config.yaml`.
-3. Unduh minimal satu voice model (mis. `en_US-lessac-medium`) dari [halaman voices Piper](https://github.com/rhasspy/piper/blob/master/VOICES.md) — setiap voice terdiri dari 2 file: `<voice>.onnx` dan `<voice>.onnx.json`.
-4. Taruh keduanya di `engines/piper/models/`, atau sesuaikan lewat `tts.piper_models_dir`.
-5. Set `tts.default_voice` di `config/config.yaml` sesuai nama voice yang diunduh (tanpa ekstensi).
-
-> Jika Piper belum ter-setup, server tetap bisa berjalan normal (endpoint `/health`, `/queue`, dll tetap berfungsi) — hanya item yang dikirim lewat `POST /speak` yang akan berstatus `failed` saat diproses, dengan `error_message` yang menjelaskan penyebabnya. Ini disengaja (graceful degradation) agar satu komponen yang belum siap tidak menjatuhkan seluruh server.
-
-## Setup ffmpeg (opsional, Announcement Engine)
-
-Sejak **Phase 7**, server dapat memutar file audio statis (bell/alarm/jingle) lewat `POST /speak` dengan `{"type": "audio", "file": "..."}` (lihat [Endpoint Queue System](#endpoint-queue-system-phase-2--tts-phase-3--announcement-engine-phase-7) di bawah). File berformat `.wav` diputar LANGSUNG tanpa dependensi tambahan apa pun. **ffmpeg hanya dibutuhkan untuk format lain (mis. MP3)** — dipakai untuk mengonversi file tsb ke WAV secara otomatis.
-
-1. Unduh ffmpeg untuk Windows dari [rilis resmi ffmpeg (gyan.dev builds)](https://www.gyan.dev/ffmpeg/builds/) atau [ffmpeg.org](https://ffmpeg.org/download.html).
-2. Ekstrak lalu tambahkan folder `bin/` (berisi `ffmpeg.exe`) ke PATH sistem, ATAU set path absolut lewat `announcement.ffmpeg_binary_path` di `config/config.yaml`.
-3. Simpan file audio (bell/alarm/jingle/dll) di direktori `sounds/` (lihat `announcement.sounds_dir`).
-
-> Jika ffmpeg belum ter-setup, server tetap berjalan normal — file `.wav` tetap bisa diputar tanpa masalah. Hanya item bertipe `audio` dengan sumber SELAIN `.wav` yang akan berstatus `failed` saat diproses (`error_message` menjelaskan bahwa ffmpeg tidak ditemukan). Konsisten dengan prinsip graceful degradation yang sama seperti Piper di atas.
-
-## Windows Service (Phase 12)
-
-Jalankan sebagai Windows Service (auto-start saat boot, auto-restart jika crash) lewat NSSM:
-
-1. Unduh NSSM dari https://nssm.cc/download, salin `nssm.exe` ke `tools\nssm\nssm.exe` (lihat `tools/nssm/README.md`).
-2. **Run as Administrator**: `install_service.bat` — membuat venv, install dependencies, install & start service `AnnouncementServer` (auto-start Windows aktif).
-3. `restart_service.bat` — restart service (mis. setelah ubah `config/config.yaml`).
-4. `uninstall_service.bat` — stop & hapus service (venv/config tidak dihapus).
-
-Cek status: `sc query AnnouncementServer`. Log proses service: `logs\service_stdout.log` / `logs\service_stderr.log` (terpisah dari log aplikasi Phase 11 di `logs\announcement_server.log`).
-
-## Instalasi & Menjalankan (Windows)
+### Windows
 
 ```bat
 run.bat
 ```
 
-Script ini akan otomatis:
-1. Membuat virtual environment (`venv/`) jika belum ada.
-2. Menginstall dependencies dari `requirements.txt`.
-3. Menjalankan server di `http://0.0.0.0:8000`.
+Script ini akan membuat virtual environment (`venv/`), menginstall dependency dari `requirements.txt`, dan menjalankan server di `http://0.0.0.0:8000`.
 
-## Instalasi & Menjalankan (manual / Linux / macOS, untuk development)
+### Linux / macOS (development)
 
 ```bash
 python -m venv venv
@@ -68,26 +42,142 @@ export PYTHONPATH=$(pwd)/src
 uvicorn announcement_server.main:app --reload
 ```
 
+## Setup Piper (TTS Engine)
+
+Piper tidak disertakan dalam repository ini dan harus diunduh secara terpisah:
+
+1. Unduh binary Piper untuk Windows dari [halaman rilis Piper](https://github.com/rhasspy/piper/releases).
+2. Ekstrak sehingga `piper.exe` berada di `engines/piper/piper.exe` (relatif terhadap root project), atau arahkan ke lokasi lain lewat `tts.piper_binary_path` di `config/config.yaml`.
+3. Unduh minimal satu voice model (mis. `en_US-lessac-medium`) dari [daftar voice Piper](https://github.com/rhasspy/piper/blob/master/VOICES.md). Setiap voice terdiri dari dua file: `<voice>.onnx` dan `<voice>.onnx.json`.
+4. Taruh kedua file tersebut di `engines/piper/models/`, atau arahkan ke direktori lain lewat `tts.piper_models_dir`.
+5. Set `tts.default_voice` di `config/config.yaml` agar sesuai dengan nama voice yang diunduh (tanpa ekstensi file).
+
+Jika Piper belum ter-setup, server tetap berjalan normal — hanya pengumuman yang dikirim lewat `POST /speak` yang akan gagal (dengan `error_message` yang jelas) saat diproses.
+
+## Setup ffmpeg (opsional)
+
+File audio statis yang sudah berformat `.wav` diputar langsung tanpa dependency tambahan apa pun. ffmpeg hanya dibutuhkan untuk mengonversi format lain (mis. MP3) ke WAV secara otomatis.
+
+1. Unduh ffmpeg untuk Windows dari [halaman rilis resmi](https://www.gyan.dev/ffmpeg/builds/) atau [ffmpeg.org](https://ffmpeg.org/download.html).
+2. Tambahkan folder yang berisi `ffmpeg.exe` ke `PATH` sistem, atau set path absolut lewat `announcement.ffmpeg_binary_path` di `config/config.yaml`.
+3. Taruh file audio (bell, alarm, jingle, dst) di direktori yang dikonfigurasi lewat `announcement.sounds_dir` (default: `sounds/`).
+
+Jika ffmpeg belum ter-setup, server tetap berjalan normal — hanya pengumuman audio non-WAV yang akan gagal dengan pesan error yang jelas.
+
+## Konfigurasi
+
+File konfigurasi utama ada di [`config/config.yaml`](config/config.yaml). Setiap nilai juga dapat di-override lewat environment variable dengan prefix `APP_`, menggunakan `__` sebagai nested delimiter, contoh:
+
+```bash
+APP_SERVER__PORT=9000
+APP_LOGGING__LEVEL=DEBUG
+```
+
+Environment variable selalu memiliki prioritas lebih tinggi daripada `config.yaml`, yang pada gilirannya meng-override nilai default bawaan.
+
+Bagian konfigurasi utama:
+
+| Bagian | Fungsi |
+|---|---|
+| `app` | Nama aplikasi, deskripsi, environment (`development`/`staging`/`production`) |
+| `server` | Host, port, reload, jumlah worker, CORS origins |
+| `logging` | Level log, direktori, nama file, rotasi |
+| `tts` | Path engine Piper, direktori model, voice default, cache, perilaku retry |
+| `playback` | Output device default, jeda antar pengumuman |
+| `queue` | Jumlah maksimum item pending, riwayat maksimum yang disimpan di memory |
+| `announcement` | Direktori file suara statis, path ffmpeg, cache konversi |
+| `zones` | Zona audio tambahan (device, volume, enabled) |
+| `scheduler` | Interval polling, timezone |
+| `schedules` | Jadwal pengumuman statis yang didefinisikan sebelumnya |
+| `maintenance` | Pembersihan cache saat startup, timeout graceful shutdown |
+
+Zona dan jadwal yang didefinisikan di `config.yaml` otomatis dibuat saat startup, tetapi juga bisa dibuat, diubah, atau dihapus saat runtime lewat REST API tanpa perlu me-restart server.
+
+## Konfigurasi Port
+
+Port HTTP default adalah:
+
+```
+http://localhost:8000
+```
+
+Port dibaca dari `server.port` di `config/config.yaml`, dan dapat diubah lewat salah satu cara berikut:
+
+**1. Edit `config/config.yaml`:**
+
+```yaml
+server:
+  port: 8080
+```
+
+**2. Set environment variable `APP_SERVER__PORT`** (meng-override `config.yaml`):
+
+```bash
+# Linux / macOS
+export APP_SERVER__PORT=8080
+uvicorn announcement_server.main:app
+
+# Windows (cmd)
+set APP_SERVER__PORT=8080
+python -m uvicorn announcement_server.main:app --host 0.0.0.0 --port 8080
+```
+
+**3. Berikan flag `--port` langsung ke uvicorn** (saat menjalankan secara manual, bukan lewat `run.bat`):
+
+```bash
+uvicorn announcement_server.main:app --host 0.0.0.0 --port 8080
+```
+
+Hasil dengan port kustom:
+
+```
+http://localhost:8080
+```
+
+> Catatan: `run.bat` dan `install_service.bat` menjalankan uvicorn dengan `--port 8000` yang di-hardcode. Untuk memakai port berbeda lewat script ini, ubah nilai `--port` di dalam script, atau set `server.port` di `config/config.yaml` dan hapus flag `--port` agar uvicorn memakai nilai dari konfigurasi.
+
+## Menjalankan
+
+### Development
+
+```bash
+uvicorn announcement_server.main:app --reload
+```
+
+### Produksi (Windows, foreground)
+
+```bat
+run.bat
+```
+
+### Produksi (Windows Service, lewat NSSM)
+
+Menjalankan server sebagai Windows Service yang otomatis start saat boot dan restart otomatis jika crash.
+
+1. Unduh [NSSM](https://nssm.cc/download) dan salin `nssm.exe` ke `tools\nssm\nssm.exe` (lihat `tools/nssm/README.md`).
+2. Jalankan sebagai **Administrator**: `install_service.bat` — menyiapkan virtual environment, menginstall dependency, lalu menginstall & menjalankan service `AnnouncementServer`.
+3. `restart_service.bat` — merestart service (mis. setelah mengubah `config/config.yaml`).
+4. `uninstall_service.bat` — menghentikan dan menghapus service (virtual environment/konfigurasi tidak ikut terhapus).
+
+Cek status: `sc query AnnouncementServer`
+Log service: `logs\service_stdout.log` / `logs\service_stderr.log`
+Log aplikasi: `logs\announcement_server.log`
+
 ## Dokumentasi API
 
-Setelah server berjalan:
+Setelah server berjalan, dokumentasi API interaktif tersedia di:
 
-- Swagger UI: <http://localhost:8000/docs>
-- ReDoc: <http://localhost:8000/redoc>
-- OpenAPI schema: <http://localhost:8000/openapi.json>
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+- OpenAPI schema: `http://localhost:8000/openapi.json`
 
-## Endpoint Queue System (Phase 2) + TTS (Phase 3) + Announcement Engine (Phase 7)
+## Penggunaan
 
-| Method | Path              | Deskripsi                                            |
-|--------|-------------------|-------------------------------------------------------|
-| POST   | `/speak`          | Menambahkan pengumuman baru ke antrean (TTS atau file audio statis, lihat `type`) |
-| GET    | `/queue`          | Melihat antrean (default: item aktif — pending/processing) |
-| DELETE | `/queue/{item_id}`| Membatalkan item PENDING                              |
-| POST   | `/clear`          | Membatalkan seluruh item PENDING                       |
+### Menambahkan pengumuman ke antrean
 
-Sejak **Phase 7**, `POST /speak` mendukung DUA sumber audio lewat field `type`:
+`POST /speak` menambahkan pengumuman ke antrean. Endpoint ini mendukung dua sumber audio lewat field `type`:
 
-Contoh `type="tts"` (default — perilaku Phase 1-6 tanpa perubahan):
+**Text-to-speech (default):**
 
 ```json
 {
@@ -101,27 +191,27 @@ Contoh `type="tts"` (default — perilaku Phase 1-6 tanpa perubahan):
 }
 ```
 
-Contoh `type="audio"` (memutar file statis — bell/alarm/jingle/MP3/WAV apa pun):
+**File audio statis:**
 
 ```json
 {
   "type": "audio",
-  "file": "sounds/bell.mp3",
+  "file": "bell.mp3",
   "priority": "high"
 }
 ```
 
-- `type`: `tts` (default) | `audio`.
-- `text`: WAJIB diisi (tidak boleh kosong) jika `type="tts"`. Untuk `type="audio"`, bersifat opsional — jika dikosongkan, otomatis diisi `"[audio] <file>"` supaya `GET /queue` tetap informatif.
-- `file`: WAJIB diisi jika `type="audio"` — path RELATIF terhadap `announcement.sounds_dir` (default `sounds/`), mis. `"bell.mp3"` atau `"alarms/fire.wav"`. Path yang mencoba keluar dari direktori ini (mis. `"../../secret.txt"`) ditolak.
+Catatan field:
+- `type`: `tts` (default) atau `audio`.
+- `text`: wajib diisi untuk `type=tts`. Opsional untuk `type=audio` — jika kosong, teks tampilan seperti `"[audio] <file>"` dibuat otomatis.
+- `file`: wajib diisi untuk `type=audio` — path relatif terhadap `announcement.sounds_dir` (default `sounds/`). Path yang mencoba keluar dari direktori ini (mis. `"../../secret.txt"`) akan ditolak.
 - `priority`: `urgent` | `high` | `normal` (default) | `low`.
-- `voice`/`speed`/`pitch`: hanya relevan untuk `type="tts"` — diabaikan untuk `type="audio"`. Lihat penjelasan masing-masing di bawah.
-- `voice`: nama voice Piper (mis. `en_US-lessac-medium`). Kosongkan (`null`) untuk memakai `tts.default_voice` dari config.
-- `speed`: 0.5–2.0 (1.0 = normal). Dipetakan ke parameter native Piper `--length_scale`.
-- `pitch`: 0.5–2.0 (1.0 = normal). **Catatan:** memakai teknik resampling sederhana yang turut memengaruhi tempo/durasi audio (lihat docstring `AudioProcessor.apply_pitch` untuk detail keterbatasan).
-- `volume`: 0.0–2.0 (1.0 = normal). Berlaku untuk `type="tts"` maupun `type="audio"` (dipanggang ke audio saat sintesis TTS; untuk file statis, konversi ffmpeg TIDAK mengubah volume file asli — gunakan volume per-zone (Phase 6) untuk itu).
+- `voice`: nama voice Piper (mis. `en_US-lessac-medium`). Biarkan `null` untuk memakai `tts.default_voice`. Diabaikan untuk `type=audio`.
+- `speed`: 0.5–2.0 (1.0 = normal). Diabaikan untuk `type=audio`.
+- `pitch`: 0.5–2.0 (1.0 = normal). Diabaikan untuk `type=audio`.
+- `volume`: 0.0–2.0 (1.0 = normal). Berlaku untuk `tts` maupun `audio`.
 
-Response (`201 Created`) — ditambah field `type`/`file` sejak Phase 7:
+Response (`201 Created`):
 
 ```json
 {
@@ -131,8 +221,8 @@ Response (`201 Created`) — ditambah field `type`/`file` sejak Phase 7:
   "file": null,
   "priority": "normal",
   "status": "pending",
-  "created_at": "2026-07-22T10:00:00Z",
-  "updated_at": "2026-07-22T10:00:00Z",
+  "created_at": "2026-07-29T10:00:00Z",
+  "updated_at": "2026-07-29T10:00:00Z",
   "error_message": null,
   "voice": "en_US-lessac-medium",
   "speed": 1.0,
@@ -144,40 +234,31 @@ Response (`201 Created`) — ditambah field `type`/`file` sejak Phase 7:
 }
 ```
 
-> ⚠️ **Penting — seluruh pipeline (Cache/Generate + Playback) terjadi ASINKRON, untuk `type="tts"` MAUPUN `type="audio"`.** Response `201` di atas hanya berarti item berhasil masuk antrean, BUKAN berarti audio sudah jadi/diputar (`audio_file_path` masih `null`). QueueWorker memproses item di background lewat Worker Pipeline (Phase 5); pantau progres lewat `GET /queue?status=completed` (audio sudah jadi DAN — jika sistem audio tersedia — sudah selesai diputar, `audio_file_path` terisi) atau `GET /queue?status=failed` (lihat `error_message` — untuk `type="tts"` mis. voice tidak ditemukan/Piper belum ter-setup; untuk `type="audio"` mis. file tidak ditemukan atau `ffmpeg` belum ter-setup untuk format non-WAV — kegagalan playback TIDAK membuat item `failed`, lihat [Worker Pipeline (Phase 5)](#worker-pipeline-phase-5)).
->
-> Audio hasil TTS disimpan sebagai file `.wav` di `tts.cache_dir` (default `cache/audio/`), dengan nama file = SHA256 dari kombinasi `engine + voice + text + speed + pitch + volume`. Mengirim teks yang sama persis dengan parameter sama akan langsung memakai cache (`cache_hit: true`) tanpa memanggil Piper ulang. Untuk `type="audio"`, file `.wav` diputar langsung (`cache_hit: true`, tanpa konversi), sedangkan format lain dikonversi ke WAV oleh `ffmpeg` dan hasilnya disimpan di `announcement.converted_cache_dir` (default `cache/announcement_audio/`) — lihat [Setup ffmpeg (opsional)](#setup-ffmpeg-opsional-announcement-engine).
->
-> Audio tidak diputar sama sekali dalam pemrosesan Phase 3/7 sendiri. Sejak **Phase 5**, audio (baik dari TTS maupun file statis Phase 7) **otomatis diputar** ke output device aktif oleh Worker Pipeline setelah tahap Cache/Generate selesai — lihat [Worker Pipeline (Phase 5)](#worker-pipeline-phase-5).
+Pemrosesan (sintesis/konversi + playback) berjalan secara **asinkron** di background. Response `201` hanya berarti item berhasil diterima ke dalam antrean — pantau progresnya lewat `GET /queue?status=completed` atau `GET /queue?status=failed`.
 
-`GET /queue` mendukung query param opsional `status` untuk melihat status
-tertentu, termasuk riwayat (`completed`, `failed`, `cancelled`) selama
-masih tersimpan di memory (dibatasi `queue.max_history` pada config).
+### Manajemen antrean
 
-## Endpoint Audio Playback (Phase 4)
+| Method | Path | Deskripsi |
+|---|---|---|
+| `POST` | `/speak` | Menambahkan pengumuman ke antrean (zona `main`) |
+| `GET` | `/queue` | Melihat isi antrean (default: hanya item aktif — pending/processing) |
+| `DELETE` | `/queue/{item_id}` | Membatalkan item yang masih pending |
+| `POST` | `/clear` | Membatalkan seluruh item pending |
 
-| Method | Path       | Deskripsi                                            |
-|--------|------------|--------------------------------------------------------|
-| GET    | `/devices` | Melihat daftar output audio device yang tersedia       |
-| POST   | `/device`  | Memilih output device aktif untuk playback              |
-| POST   | `/pause`   | Menjeda playback yang sedang berjalan                    |
-| POST   | `/resume`  | Melanjutkan playback yang dijeda                          |
-| POST   | `/stop`    | Menghentikan playback sepenuhnya (idempotent)              |
+`GET /queue` menerima query parameter opsional `status` untuk melihat status tertentu, termasuk riwayat completed/failed/cancelled (dibatasi oleh `queue.max_history`).
 
-> ⚠️ **Endpoint di sini murni kontrol manual** (pilih device, pause, resume,
-> stop) — belum ada endpoint HTTP untuk "memutar file X" secara langsung
-> (sesuai roadmap Phase 4). Sejak **Phase 5**, penyambungan hasil TTS ke
-> playback terjadi **otomatis di background** lewat Worker Pipeline untuk
-> setiap item `POST /speak` — lihat [Worker Pipeline (Phase 5)](#worker-pipeline-phase-5)
-> di bawah. Endpoint `/pause`, `/resume`, `/stop` di atas tetap berguna
-> untuk mengontrol playback yang SEDANG berjalan lewat pipeline tsb (mis.
-> menghentikan paksa pengumuman yang salah).
->
-> Untuk memutar satu file WAV secara manual di luar pipeline (mis. uji
-> coba device baru), gunakan script bantu manual (lihat bagian
-> "Verifikasi Playback Manual" di bawah).
+### Kontrol playback
 
-Contoh `GET /devices` response:
+| Method | Path | Deskripsi |
+|---|---|---|
+| `GET` | `/devices` | Melihat daftar output audio device yang tersedia |
+| `POST` | `/device` | Memilih output device aktif |
+| `POST` | `/pause` | Menjeda playback yang sedang berjalan |
+| `POST` | `/resume` | Melanjutkan playback yang dijeda |
+| `POST` | `/stop` | Menghentikan playback (idempotent) |
+
+Contoh response `GET /devices`:
+
 ```json
 {
   "devices": [
@@ -188,102 +269,33 @@ Contoh `GET /devices` response:
 }
 ```
 
-Contoh `POST /device`:
-```json
-{ "device_id": 3 }
-```
+`/device`, `/pause`, `/resume`, dan `/stop` semuanya mengembalikan format yang sama:
 
-Response `/pause`, `/resume`, `/stop`, dan `/device` semuanya memakai format yang sama:
 ```json
 {
   "state": "playing",
-  "current_file": "cache\\audio\\7f4f14e...wav",
+  "current_file": "cache/audio/7f4f14e....wav",
   "selected_device_id": 3
 }
 ```
 
-`state` bernilai salah satu dari: `idle` (tidak ada playback), `playing`, `paused`.
+`state` bernilai salah satu dari `idle`, `playing`, `paused`. Jika tidak ada driver audio yang terdeteksi di mesin, endpoint ini akan mengembalikan error `502` yang jelas, tanpa menghalangi bagian server lainnya untuk tetap berjalan.
 
-> Jika PortAudio/driver audio tidak terdeteksi di server (mis. dijalankan di mesin tanpa sound card), endpoint `/health`, `/queue`, `/speak` **tetap berfungsi normal** — hanya endpoint di atas yang akan mengembalikan error `502 PLAYBACK_DEVICE_ERROR` yang jelas, bukan membuat seluruh server gagal start (graceful degradation, sama seperti perilaku Piper di Phase 3).
+### Zona (audio multi-channel)
 
-## Verifikasi Playback Manual
+Setiap zona adalah jalur audio independen — memiliki antrean, worker, dan perangkat playback sendiri. Zona `main` selalu ada dan tidak dapat dihapus; endpoint level atas `/speak`, `/queue`, `/clear`, `/devices`, `/device`, `/pause`, `/resume`, `/stop` selalu beroperasi pada zona ini.
 
-Karena Phase 4 belum punya endpoint "play" (lihat catatan di atas), gunakan script bantu berikut untuk benar-benar mendengar hasilnya di Windows:
+| Method | Path | Deskripsi |
+|---|---|---|
+| `GET` | `/zones` | Melihat daftar seluruh zona beserta status runtime-nya |
+| `POST` | `/zones` | Membuat zona baru |
+| `PUT` | `/zones/{name}` | Memperbarui zona (pembaruan parsial) |
+| `DELETE` | `/zones/{name}` | Menghapus zona (zona `main` dilindungi) |
+| `GET` | `/zones/{name}/queue` | Melihat antrean milik satu zona |
+| `POST` | `/zones/{name}/device` | Memilih output device untuk satu zona |
+| `POST` | `/zones/{name}/speak` | Mengirim pengumuman ke satu zona |
 
-```powershell
-.\venv\Scripts\Activate.ps1
-$env:PYTHONPATH = "$PWD\src"
-python scripts\manual_test_playback.py "cache\audio\<nama_file_hasil_tts>.wav"
-```
-
-Script ini akan memutar file, menampilkan daftar output device yang terdeteksi, dan menerima perintah `p` (pause) / `r` (resume) / `s` (stop) / `q` (keluar) langsung dari terminal. Ini murni alat bantu verifikasi lokal, bukan bagian dari server/API.
-
-## Worker Pipeline (Phase 5)
-
-Sejak Phase 5, `QueueWorker` (Phase 2, tidak diubah) menjalankan
-`AnnouncementPipelineProcessor` sebagai `item_processor`-nya, yang
-menyatukan seluruh tahap berikut untuk **setiap** item `POST /speak`
-secara otomatis, satu per satu, sesuai priority antrean:
-
-```
-Queue → Cache → Generate → Playback → Delay → Queue Berikutnya
-```
-
-1. **Queue** — item PENDING di-dequeue (Phase 2).
-2. **Cache / Generate** — teks disintesis jadi audio lewat `TTSService`
-   (Phase 3): cache hit langsung dipakai, cache miss memanggil Piper.
-3. **Playback** — file WAV hasil sintesis diputar ke output device aktif
-   (Phase 4), worker menunggu sampai audio **benar-benar selesai
-   terdengar** sebelum lanjut.
-4. **Delay** — jeda `playback.post_playback_delay_seconds` (default `0.5`
-   detik) di `config/config.yaml`, agar antar-pengumuman TOA tidak
-   bertabrakan/terlalu rapat. Set `0` untuk menonaktifkan jeda.
-5. **Queue Berikutnya** — worker otomatis lanjut ke item PENDING
-   berikutnya (priority tertinggi dulu, lalu FIFO).
-
-Pantau progres tiap tahap lewat `GET /queue/{item_id}` atau
-`GET /queue?status=...` — `status` item baru menjadi `completed` **setelah
-seluruh pipeline** (termasuk playback + delay) selesai, bukan lagi hanya
-setelah TTS selesai seperti pada Phase 3.
-
-> **Playback bersifat best-effort, tidak bisa membuat item gagal.** Jika
-> sistem audio tidak tersedia (`playback_manager` `None`, lihat catatan
-> graceful degradation Phase 4 di atas) atau playback gagal karena alasan
-> device/file, tahap Playback dilewati/dicatat sebagai warning di log —
-> item tetap `completed` selama tahap TTS-nya sendiri berhasil. Hanya
-> kegagalan pada tahap **TTS** (mis. voice tidak ditemukan, Piper belum
-> ter-setup) yang membuat item berstatus `failed`, sama seperti Phase 3.
-
-## Endpoint Multi Zone (Phase 6)
-
-Setiap **Zone** adalah jalur audio independen: Queue + Worker + Playback
-miliknya sendiri (lihat `src/announcement_server/zones/`). Zone `main`
-SELALU ada sejak startup (dibangun dari `queue`/`playback` di
-`config.yaml`, opsional di-override lewat `zones.main`) dan **tidak dapat
-dihapus** — seluruh endpoint Phase 1-5 (`/speak`, `/queue`, `/clear`,
-`/devices`, `/device`, `/pause`, `/resume`, `/stop`) tetap beroperasi di
-atas zone ini tanpa perubahan apa pun.
-
-| Method | Path                     | Deskripsi                                                        |
-|--------|--------------------------|--------------------------------------------------------------------|
-| GET    | `/zones`                 | Melihat daftar seluruh zone + status runtime masing-masing          |
-| POST   | `/zones`                 | Membuat zone baru (Queue+Worker+Playback independen)                 |
-| PUT    | `/zones/{name}`          | Memperbarui zone (device/volume/enabled) — pembaruan parsial          |
-| DELETE | `/zones/{name}`          | Menghapus zone (zone `main` dilindungi, `409`)                          |
-| GET    | `/zones/{name}/queue`    | Melihat antrean milik satu zone (sama seperti `GET /queue`)              |
-| POST   | `/zones/{name}/device`   | Memilih output device aktif untuk satu zone (sama seperti `POST /device`) |
-| POST   | `/zones/{name}/speak`    | *(tambahan, lihat catatan di bawah)* Mengirim pengumuman ke satu zone      |
-
-> ℹ️ **`POST /zones/{name}/speak` — tambahan di luar 6 endpoint literal
-> ROADMAP.md Phase 6.** Roadmap hanya mendaftarkan endpoint manajemen
-> zone, belum endpoint untuk benar-benar *mengirim* pengumuman ke zone
-> tertentu — tanpa endpoint ini, zone yang dibuat tidak akan pernah punya
-> isi. Endpoint ini memakai ulang `SpeakRequest`/`QueueItemResponse`
-> (Phase 2) apa adanya, tanpa mengubah `api/v1/queue.py` maupun
-> `schemas/queue.py` sama sekali. `POST /speak` (Phase 2, tanpa prefix
-> zone) **tidak berubah** dan tetap hanya menyasar zone `main`.
-
-Contoh `POST /zones`:
+Contoh — membuat zona:
 
 ```json
 {
@@ -294,30 +306,7 @@ Contoh `POST /zones`:
 }
 ```
 
-Response (`201 Created`):
-
-```json
-{
-  "name": "lobby",
-  "enabled": true,
-  "device_id": null,
-  "volume": 1.0,
-  "created_at": "2026-07-24T10:00:00Z",
-  "updated_at": "2026-07-24T10:00:00Z",
-  "worker_running": true,
-  "playback_state": "idle",
-  "pending_count": 0,
-  "processing_count": 0
-}
-```
-
-Contoh `PUT /zones/lobby` (pembaruan parsial — hanya field yang dikirim yang berubah):
-
-```json
-{ "volume": 0.6, "enabled": false }
-```
-
-Contoh mengirim pengumuman ke zone tertentu:
+Contoh — mengirim pengumuman ke zona tertentu:
 
 ```bash
 curl -X POST http://localhost:8000/zones/lobby/speak \
@@ -325,45 +314,22 @@ curl -X POST http://localhost:8000/zones/lobby/speak \
   -d '{"text": "Selamat datang di lobby"}'
 ```
 
-### Bagaimana Zone volume diterapkan
+`volume` pada zona adalah gain per-channel yang diterapkan saat playback (seperti volume knob per-channel amplifier), terpisah dari `volume` per-item yang dikirim lewat `POST /speak`.
 
-`volume` pada Zone adalah **gain per-channel** (analog volume knob
-amplifier TOA) — **berbeda** dari `volume` pada `POST /speak` (Phase 3,
-gain per-item yang sudah dipanggang ke dalam file cache TTS). Zone volume
-diterapkan **saat playback**, ke salinan sementara audio (bukan ke file
-cache asli — cache TTS berbasis SHA256 di-share oleh seluruh zone), lewat
-`AudioProcessor.apply_volume` yang sama persis dipakai Phase 3 (tidak
-diduplikasi). Salinan sementara ini dibuat di `cache/zone_audio/{nama_zone}/`
-dan otomatis dihapus setelah selesai diputar. Zone `main` memakai gain
-`1.0` secara default, sehingga perilakunya identik dengan Phase 5 (file
-cache diputar langsung, tanpa salinan sementara).
+### Scheduler
 
-### Konfigurasi Zone via `config.yaml`
+Memicu pengumuman otomatis secara berkala atau sekali waktu.
 
-Zone tambahan (selain `main`) juga bisa didefinisikan statis lewat
-`config/config.yaml` (dibuat otomatis saat startup) — lihat bagian
-`zones:` pada file tersebut. Ini murni kenyamanan; seluruh operasi yang
-sama (create/update/delete) tetap bisa dilakukan lewat REST API kapan
-saja tanpa restart server.
+| Method | Path | Deskripsi |
+|---|---|---|
+| `GET` | `/scheduler` | Melihat daftar seluruh jadwal |
+| `POST` | `/scheduler` | Membuat jadwal baru |
+| `GET` | `/scheduler/{id}` | Melihat detail satu jadwal |
+| `PUT` | `/scheduler/{id}` | Memperbarui jadwal (pembaruan parsial) |
+| `DELETE` | `/scheduler/{id}` | Menghapus jadwal |
+| `POST` | `/scheduler/{id}/trigger` | Memicu jadwal segera, tanpa memengaruhi jadwal otomatis berikutnya |
 
-## Endpoint Scheduler (Phase 8)
-
-Memicu pengumuman otomatis berbasis waktu — mendukung **Daily**,
-**Weekly**, dan **One Time** (lihat ROADMAP.md, contoh: 07.00 → Bell,
-12.00 → Istirahat, 15.00 → Pulang). Scheduler murni "mengetuk" antrean
-yang sudah ada (`QueueManager.enqueue()`, Phase 2/6/7) pada waktu yang
-tepat — tidak ada jalur pemrosesan TTS/audio baru.
-
-| Method | Path                        | Deskripsi                                                  |
-|--------|-----------------------------|---------------------------------------------------------------|
-| GET    | `/scheduler`                | Melihat daftar seluruh jadwal                                  |
-| POST   | `/scheduler`                | Membuat jadwal baru                                              |
-| GET    | `/scheduler/{id}`           | Melihat detail satu jadwal                                        |
-| PUT    | `/scheduler/{id}`           | Memperbarui jadwal (pembaruan parsial)                              |
-| DELETE | `/scheduler/{id}`           | Menghapus jadwal                                                     |
-| POST   | `/scheduler/{id}/trigger`   | Memicu satu jadwal SEGERA (manual, untuk verifikasi) tanpa memengaruhi jadwal otomatis berikutnya |
-
-Contoh `POST /scheduler` (Daily — Bell Masuk):
+Contoh — jadwal harian:
 
 ```json
 {
@@ -375,11 +341,11 @@ Contoh `POST /scheduler` (Daily — Bell Masuk):
 }
 ```
 
-Contoh Weekly (Istirahat, Senin-Jumat):
+Contoh — jadwal mingguan (Senin–Jumat):
 
 ```json
 {
-  "name": "Istirahat",
+  "name": "Istirahat Siang",
   "recurrence": "weekly",
   "time_of_day": "12:00",
   "days_of_week": [0, 1, 2, 3, 4],
@@ -387,7 +353,7 @@ Contoh Weekly (Istirahat, Senin-Jumat):
 }
 ```
 
-Contoh One Time:
+Contoh — jadwal sekali waktu:
 
 ```json
 {
@@ -395,114 +361,93 @@ Contoh One Time:
   "recurrence": "once",
   "time_of_day": "09:00",
   "run_date": "2026-08-17",
-  "announcement": { "type": "tts", "text": "Selamat memperingati HUT Kemerdekaan." }
+  "announcement": { "type": "tts", "text": "Ini adalah pengumuman khusus." }
 }
 ```
 
 - `recurrence`: `daily` | `weekly` | `once`.
 - `time_of_day`: format `"HH:MM"` atau `"HH:MM:SS"` (24 jam).
-- `days_of_week`: **wajib** untuk `weekly` — daftar angka `0` (Senin) s.d. `6` (Minggu). Diabaikan untuk recurrence lain.
-- `run_date`: **wajib** untuk `once` — format `"YYYY-MM-DD"`. Ditolak (`422`) jika sudah berlalu.
-- `announcement`: sama persis dengan body `POST /speak` (Phase 2/7) — mendukung `type="tts"`/`type="audio"`.
-- `zone`: nama zone tujuan (default `"main"`, lihat `GET /zones`).
+- `days_of_week`: wajib untuk `weekly` — daftar angka `0` (Senin) sampai `6` (Minggu).
+- `run_date`: wajib untuk `once` — format `"YYYY-MM-DD"`. Ditolak (`422`) jika sudah berlalu.
+- `zone`: nama zona tujuan (default `"main"`).
 
-> ⚠️ Jadwal `once` **otomatis dinonaktifkan** (`enabled: false`, `next_run_at: null`) setelah terpicu satu kali — tidak akan pernah terpicu lagi. Jadwal `daily`/`weekly` otomatis menghitung `next_run_at` berikutnya setiap kali terpicu. Kegagalan saat memicu (mis. zone tujuan sudah dihapus, atau file audio tidak ditemukan) di-log dan TIDAK menghentikan scheduler — `next_run_at` tetap dimajukan untuk mencegah retry rapat.
+Jadwal `once` otomatis dinonaktifkan setelah terpicu satu kali. Perilaku timezone diatur lewat `scheduler.timezone` di `config/config.yaml` — `"local"` (default) memakai jam sistem apa adanya, atau isi dengan nama zona IANA eksplisit (mis. `"Asia/Jakarta"`).
 
-### Zona waktu & presisi
+### Status WebSocket
 
-Scheduler memeriksa jadwal jatuh tempo setiap `scheduler.poll_interval_seconds` (default 5 detik) — cukup presisi untuk jadwal berbasis menit. Default `scheduler.timezone: "local"` memakai jam sistem apa adanya (tanpa tzinfo eksplisit), paling sesuai untuk perangkat PA fisik. Isi dengan nama zona IANA eksplisit (mis. `"Asia/Jakarta"`) jika server dan lokasi pengumuman berada di zona waktu berbeda — pastikan paket `tzdata` terpasang (lihat `requirements.txt`), terutama di Windows.
+Hubungkan ke `ws://localhost:8000/ws/status` untuk mendapatkan update status real-time berbasis push (tanpa polling). Setelah terhubung, client menerima satu snapshot seluruh zona, diikuti event-event berikutnya saat terjadi.
 
-### Konfigurasi Schedule via `config.yaml`
-
-Jadwal juga bisa didefinisikan statis lewat `config/config.yaml` (bagian
-`schedules:`, dibuat otomatis saat startup) — lihat contoh
-Bell/Istirahat/Pulang yang sudah disediakan (nonaktif secara default,
-sama seperti contoh `zones:`). Jadwal statis maupun yang dibuat lewat API
-sama-sama diproses oleh `SchedulerManager` yang sama; tidak ada
-perbedaan perilaku.
-
-## Endpoint WebSocket (Phase 9)
-
-`ws://localhost:8000/ws/status` — status real-time TANPA POLLING. Setelah
-terhubung, client menerima satu snapshot awal (status seluruh zone),
-lalu setiap event yang terjadi secara push (server-initiated), tanpa
-client perlu mengirim apa pun.
-
-Format setiap pesan:
+Format pesan:
 
 ```json
-{ "event": "<nama_event>", "timestamp": "2026-07-25T10:00:00+00:00", "data": { ... } }
+{ "event": "<nama_event>", "timestamp": "2026-07-29T10:00:00+00:00", "data": { ... } }
 ```
 
-Event yang dikirim (sesuai ROADMAP.md):
+| Event | Kapan dikirim |
+|---|---|
+| `snapshot` | Sekali, tepat setelah koneksi terbuka |
+| `queue_changed` | Setiap perubahan status item antrean |
+| `speaking` | Playback mulai berjalan |
+| `idle` | Playback berhenti atau selesai |
+| `pause` | Playback dijeda |
+| `resume` | Playback dilanjutkan |
+| `finished` | Satu item selesai diproses (completed atau failed) |
 
-| Event            | Kapan dikirim                                              | Contoh `data`                                          |
-|------------------|--------------------------------------------------------------|------------------------------------------------------------|
-| `snapshot`       | Sekali, tepat setelah koneksi terbuka                          | `{"zones": [...]}` (sama seperti response `GET /zones`)      |
-| `queue_changed`  | Setiap perubahan status item (enqueue/proses/batal/hapus)        | `{"reason": "enqueued", "item_id": "...", "status": "pending", "zone": "main"}` |
-| `speaking`       | Playback mulai memutar audio                                     | `{"file": "cache/audio/....wav", "zone": "main"}`             |
-| `idle`           | Playback berhenti/selesai (baik alami maupun `stop()`)              | `{"file": null, "zone": "main"}`                              |
-| `pause`          | Playback dijeda                                                     | `{"file": "...", "zone": "main"}`                             |
-| `resume`         | Playback dilanjutkan                                                | `{"file": "...", "zone": "main"}`                             |
-| `finished`       | Satu item selesai diproses (completed ATAU failed)                  | `{"reason": "completed", "item_id": "...", "zone": "main"}`    |
+Setiap event kecuali `snapshot` memiliki field `zone`, karena satu koneksi mem-broadcast event dari seluruh zona.
 
-Setiap event (kecuali `snapshot`) memiliki field `zone` — nama zone (Phase
-6) yang menjadi sumber event tsb, karena `/ws/status` bersifat global
-(mem-broadcast SELURUH zone dalam satu koneksi, bukan per-zone).
-
-Contoh memakai `websocat`/browser console:
+Contoh (browser console):
 
 ```js
 const ws = new WebSocket("ws://localhost:8000/ws/status");
 ws.onmessage = (msg) => console.log(JSON.parse(msg.data));
 ```
 
-> Broadcast bersifat *best-effort*: kegagalan mengirim ke satu client (mis.
-> koneksi sudah putus) tidak memengaruhi client lain maupun proses
-> Queue/Playback itu sendiri — client yang bermasalah otomatis dibersihkan
-> dari daftar koneksi aktif.
+### Dashboard & monitoring
 
-## Endpoint Dashboard (Phase 10)
+Endpoint read-only untuk dashboard dan tools monitoring eksternal.
 
-Endpoint read-only untuk monitoring/dashboard eksternal — murni agregasi dari komponen yang sudah ada, tidak ada state baru.
+| Method | Path | Deskripsi |
+|---|---|---|
+| `GET` | `/status` | Snapshot lengkap: status queue/worker/device/playback per zona, statistik cache, jumlah client WebSocket, uptime |
+| `GET` | `/history` | Pengumuman yang sudah selesai (completed/failed/cancelled) lintas zona, terbaru dulu |
+| `GET` | `/metrics` | Ringkasan angka: jumlah item per status, jumlah zona, jadwal aktif, client WebSocket, cache, penggunaan memory |
+| `GET` | `/health` | Health check ringan untuk monitoring/watchdog |
+| `POST` | `/maintenance/cache/cleanup` | Menghapus file cache TTS/announcement yang lebih tua dari batas usia yang dikonfigurasi (atau dikirim lewat request) |
 
-| Method | Path         | Deskripsi                                                        |
-|--------|--------------|----------------------------------------------------------------------|
-| GET    | `/status`    | Snapshot lengkap: Queue/Worker/Device/Zone/Current Audio per zone, statistik cache, jumlah client WebSocket, uptime |
-| GET    | `/history`   | Riwayat item selesai (completed/failed/cancelled) lintas zone, terurut terbaru dulu |
-| GET    | `/metrics`   | Ringkasan angka: jumlah item per status, zone, jadwal aktif, client WebSocket, cache |
-| GET    | `/health`    | (Phase 1, tidak berubah) Health check ringan untuk watchdog/load balancer |
+`GET /history` mendukung query parameter opsional: `zone` (batasi ke satu zona), `status` (default: seluruh status final), `limit` (default 100, maksimum 1000).
 
-`GET /history` mendukung query param opsional: `zone` (filter satu zone,
-404 jika tidak ada), `status` (default: seluruh status final), `limit`
-(default 100, maksimum 1000).
+## Struktur Project
 
-## Konfigurasi
-
-Konfigurasi utama ada di [`config/config.yaml`](config/config.yaml). Semua
-nilai dapat di-override lewat environment variable dengan prefix `APP_` dan
-separator nested `__`, contoh:
-
-```bash
-APP_SERVER__PORT=9000
-APP_LOGGING__LEVEL=DEBUG
 ```
-
-Bagian `announcement:` (Phase 7) mengatur Announcement Engine:
-
-| Key                                    | Default                       | Deskripsi                                                        |
-|-----------------------------------------|--------------------------------|--------------------------------------------------------------------|
-| `announcement.sounds_dir`               | `sounds`                       | Direktori file audio statis (bell/alarm/jingle/dst)                 |
-| `announcement.ffmpeg_binary_path`       | `ffmpeg`                       | Path executable ffmpeg, atau nama binary jika sudah ada di PATH       |
-| `announcement.converted_cache_dir`      | `cache/announcement_audio`     | Cache hasil konversi ffmpeg ke WAV                                    |
-| `announcement.conversion_timeout_seconds`| `30.0`                        | Timeout maksimum satu proses konversi ffmpeg                          |
-
-Bagian `scheduler:` (Phase 8) mengatur Scheduler:
-
-| Key                              | Default   | Deskripsi                                                              |
-|-----------------------------------|-----------|----------------------------------------------------------------------------|
-| `scheduler.poll_interval_seconds` | `5.0`     | Seberapa sering jadwal jatuh tempo diperiksa                                |
-| `scheduler.timezone`              | `local`   | `"local"` (jam sistem) atau nama zona IANA eksplisit, mis. `"Asia/Jakarta"`   |
+announcement-server/
+├── src/announcement_server/
+│   ├── main.py                    # Application factory (create_app) + entry point ASGI
+│   ├── core/                      # Settings, logging, exceptions, kontrak event
+│   ├── api/
+│   │   ├── deps.py                # Dependency injection providers
+│   │   └── v1/                    # Router: health, queue, playback, zones, scheduler, websocket, dashboard, maintenance
+│   ├── queueing/                  # Sistem antrean: models, manager, worker, pipeline processing
+│   ├── announcement/              # Resolusi audio statis (konversi ffmpeg + cache)
+│   ├── tts/                       # Abstraksi TTS engine, implementasi Piper, post-processing audio, cache
+│   ├── playback/                  # Manajemen audio device dan kontrol playback
+│   ├── zones/                     # Orkestrasi multi-zona
+│   ├── scheduler/                 # Penjadwalan pengumuman berbasis waktu
+│   ├── websocket/                 # Manajemen koneksi WebSocket
+│   └── schemas/                   # Model request/response
+├── config/config.yaml             # File konfigurasi utama
+├── engines/piper/                 # (dibuat manual) binary + voice model Piper — lihat Setup Piper
+├── sounds/                        # (dibuat manual) file audio statis — lihat announcement.sounds_dir
+├── cache/audio/                   # (dibuat otomatis) cache audio TTS, dipakai bersama seluruh zona
+├── cache/announcement_audio/      # (dibuat otomatis) cache hasil konversi ffmpeg
+├── scripts/manual_test_playback.py# Alat bantu verifikasi playback manual (bukan bagian dari API)
+├── logs/                          # Log aplikasi dan service
+├── tests/                         # Test suite
+├── requirements.txt
+├── run.bat                        # Windows: setup + jalankan di foreground
+├── install_service.bat            # Windows: install sebagai Windows Service (NSSM)
+├── restart_service.bat            # Windows: restart Windows Service
+└── uninstall_service.bat          # Windows: hapus Windows Service
+```
 
 ## Menjalankan Test
 
@@ -512,107 +457,14 @@ export PYTHONPATH=$(pwd)/src
 pytest -v
 ```
 
-Test dibagi beberapa lapisan:
-- `tests/test_queue_manager.py`, `test_queue_manager_tts_fields.py` — unit test murni `QueueManager` (priority, FIFO, cancel, clear, full, pruning, field & method TTS), tanpa worker/HTTP.
-- `tests/test_queue_worker.py` — integrasi `QueueManager` + `QueueWorker` dengan stub processor (murni Phase 2, tidak diubah).
-- `tests/test_queue_api.py` — endpoint HTTP end-to-end, dengan `QueueManager` di-override lewat `app.dependency_overrides` agar deterministik.
-- `tests/test_audio_processor.py` — unit test DSP volume/pitch (`AudioProcessor`), pakai WAV sintetis.
-- `tests/test_audio_cache.py` — unit test cache SHA256 (`AudioCache`): key deterministik, atomic write, hit/miss.
-- `tests/test_engine_factory.py` — unit test registry `EngineFactory` (Open/Closed Principle).
-- `tests/test_piper_engine.py` — unit test `PiperEngine` memakai *fake piper executable* (tidak butuh binary Piper asli) untuk memvalidasi plumbing subprocess: sukses, voice tidak ditemukan, binary tidak ada, exit code gagal, timeout.
-- `tests/test_tts_service.py` — unit test orkestrasi `TTSService` (cache hit/miss, post-processing) memakai `FakeEngine`.
-- `tests/test_queue_tts_integration.py` — test integrasi penuh: `QueueManager` + `QueueWorker` (Phase 2, tidak diubah) + `TTSQueueProcessor` (Phase 3) + `FakeEngine`.
-- `tests/test_audio_device_manager.py` — unit test `AudioDeviceManager` memakai fake `sounddevice` module (tidak butuh hardware audio).
-- `tests/test_playback_manager.py` — unit test `PlaybackManager`: play, pause/resume (memverifikasi posisi TIDAK reset), stop (idempotent), auto-stop saat audio habis, ganti device, dan `wait_until_finished()` (Phase 5): menunggu selesai alami, selesai karena `stop()`, langsung return saat IDLE.
-- `tests/test_playback_api.py` — endpoint HTTP `/devices`, `/device`, `/pause`, `/resume`, `/stop` end-to-end dengan dependency override.
-- `tests/test_pipeline_processor.py` — test `AnnouncementPipelineProcessor` (Phase 5): playback dipanggil & ditunggu, playback dilewati saat `PlaybackManager` `None`, kegagalan playback tidak menggagalkan item, kegagalan tahap TTS tetap `failed`, tahap Delay benar-benar menjeda.
-- `tests/test_zone_manager.py` — unit test `ZoneManager` (Phase 6): create/list/get/update/delete zone, zone `main` dilindungi dari penghapusan, toggle `enabled` menghentikan/menjalankan worker, tiap zone punya `QueueManager` independen, `shutdown()` menghentikan seluruh zone.
-- `tests/test_zones_api.py` — endpoint HTTP `/zones`, `/zones/{name}`, `/zones/{name}/queue`, `/zones/{name}/device`, `/zones/{name}/speak` end-to-end dengan dependency override (`FakeEngine` + `FakeSoundDevice`, tidak butuh Piper/hardware asli); memverifikasi antar-zone (termasuk `main`) benar-benar terisolasi satu sama lain.
-- `tests/test_pipeline_processor_volume_gain.py` — test khusus penambahan `volume_gain` (Phase 6) pada `AnnouncementPipelineProcessor`: gain default `1.0` tidak mengubah perilaku Phase 5 sama sekali, gain custom benar-benar men-scale audio yang diputar (dibandingkan lewat `AudioProcessor.apply_volume`) tanpa mengubah file cache asli, gain bisa diubah lewat setter tanpa membuat ulang pipeline, dan kegagalan penerapan gain fallback graceful ke file asli.
-- `tests/test_audio_asset_resolver.py` — unit test `AudioAssetResolver` (Phase 7) memakai *fake ffmpeg executable* (pola sama seperti `test_piper_engine.py`, tidak butuh ffmpeg asli): file `.wav` diputar langsung tanpa konversi, file nested di sub-folder `sounds_dir`, file tidak ditemukan, path traversal ditolak, konversi MP3 berhasil + di-cache (panggilan kedua tidak memanggil ffmpeg ulang), ffmpeg tidak ditemukan, ffmpeg gagal (exit code), ffmpeg timeout.
-- `tests/test_announcement_source_processor.py` — unit test `AnnouncementSourceProcessor` (Phase 7): item `type=tts` di-dispatch ke `TTSQueueProcessor`, item `type=audio` di-dispatch ke `AudioAssetResolver` dan hasilnya tersimpan lewat `QueueManager.update_tts_result` (bukan ke `TTSQueueProcessor`), item `audio` tanpa `source_file`/dengan file tidak ditemukan melempar error yang sesuai.
-- `tests/test_speak_announcement_type_api.py` — dua kelompok test Phase 7: (1) validasi HTTP `POST /speak` untuk `type`/`file` (backward-compat default `type=tts`, `text`/`file` wajib sesuai `type`, `text` otomatis untuk `type=audio` yang tidak diisi); (2) end-to-end `QueueManager` + `AnnouncementSourceProcessor` + `AnnouncementPipelineProcessor` + `QueueWorker` sungguhan (disusun identik dengan `ZoneManager.create_zone`) memverifikasi item `audio` benar-benar selesai/gagal diproses, serta item `tts` dan `audio` tetap bisa diproses berdampingan oleh worker yang sama.
-- `tests/test_scheduler_models.py` — unit test murni `compute_next_run`/`parse_time_of_day`/`parse_run_date` (Phase 8): daily (selalu ada next run, boundary tepat di waktu jadwal dianggap sudah lewat), weekly (hari yang sama minggu ini/depan tergantung waktu sudah lewat atau belum, daftar hari kosong → `None`), once (masa depan vs sudah lewat vs `run_date` kosong).
-- `tests/test_scheduler_manager.py` — unit test `SchedulerManager` (Phase 8): CRUD jadwal, validasi (`weekly` tanpa `days_of_week`, `once` tanpa/dengan `run_date` sudah lewat, `announcement` tidak konsisten dengan `type`), `trigger_now` (tidak memengaruhi `next_run_at` terjadwal, melempar error untuk zone tujuan yang tidak ada), dan background loop SUNGGUHAN (bukan mock) yang benar-benar memicu jadwal `once` secara otomatis lalu menonaktifkannya.
-- `tests/test_scheduler_api.py` — endpoint HTTP `/scheduler` end-to-end dengan dependency override (`FakeEngine`, tidak butuh Piper asli), memverifikasi seluruh skenario create/get/update/delete/trigger beserta validasi 422/404.
-- `tests/test_connection_manager.py` — unit test `ConnectionManager` (Phase 9): connect/disconnect registry, broadcast ke seluruh client, pembersihan koneksi stale otomatis.
-- `tests/test_queue_manager_events.py` — unit test event emission (Phase 9) pada `QueueManager`: `queue_changed`/`finished` terkirim dengan payload benar di setiap perubahan status, tidak terkirim untuk item yang sudah dibatalkan/tidak ditemukan, default `noop_event_publisher` tidak mengubah perilaku Phase 1-8.
-- `tests/test_playback_manager_events.py` — unit test event emission (Phase 9) pada `PlaybackManager`: `speaking`/`pause`/`resume`/`idle` terkirim di titik yang benar (termasuk simulasi frame audio habis secara alami lewat callback native, bukan hanya lewat `stop()`).
-- `tests/test_websocket_status_api.py` — end-to-end `/ws/status` dengan dependency override: snapshot awal saat koneksi dibuka, broadcast `queue_changed` real-time saat `POST /zones/{name}/speak`/`DELETE /queue/{id}`, banyak client menerima event yang sama, registry koneksi bersih setelah disconnect.
+## Troubleshooting
 
-## Struktur Project
+- **Item `POST /speak` gagal dengan error TTS** — Piper belum terpasang atau salah konfigurasi. Periksa `tts.piper_binary_path` dan `tts.piper_models_dir` di `config/config.yaml`, dan pastikan nama voice di `tts.default_voice` sesuai dengan file model yang diunduh.
+- **Pengumuman bertipe audio gagal untuk file non-WAV** — ffmpeg belum terpasang atau tidak ada di `PATH`. File `.wav` selalu berfungsi tanpa ffmpeg.
+- **`/devices`, `/device`, `/pause`, `/resume`, `/stop` mengembalikan error** — tidak ada perangkat/driver output audio yang terdeteksi saat server startup. Endpoint lain tetap berfungsi normal.
+- **Pengumuman terjadwal tidak terpicu pada waktu lokal yang diharapkan** — periksa `scheduler.timezone` di `config/config.yaml`. Jika memakai nama zona IANA eksplisit (mis. `"Asia/Jakarta"`) di Windows, pastikan paket `tzdata` sudah terpasang (sudah termasuk di `requirements.txt`).
+- **Perubahan port tidak berpengaruh** — jika menjalankan lewat `run.bat` atau `install_service.bat`, port dikirim secara eksplisit lewat flag command-line dan meng-override `config.yaml`; ubah script tersebut atau hapus flag-nya seperti dijelaskan di [Konfigurasi Port](#konfigurasi-port).
 
-```
-announcement-server/
-├── src/announcement_server/
-│   ├── main.py                  # Application factory (create_app) + entry point
-│   ├── core/
-│   │   ├── config.py             # Pydantic v2 settings (YAML + env override): App, Server, Logging, TTS, Playback, Queue, Announcement (Phase 7), Zones (Phase 6), Scheduler (Phase 8, SchedulerConfig + dict[str, ScheduleDefinition])
-│   │   ├── logging.py            # Setup logging (rotating file handler)
-│   │   ├── exceptions.py         # Custom exception hierarchy + global handler (+ Zone* Phase 6, + Audio*/Announcement* Phase 7, + Schedule*/InvalidScheduleError Phase 8)
-│   │   └── events.py             # (Phase 9) Kontrak EventPublisher + noop_event_publisher + nama event (EVENT_*) — dipakai QueueManager/PlaybackManager, diimplementasikan oleh websocket/manager.py
-│   ├── api/
-│   │   ├── deps.py               # Dependency Injection providers (Settings, QueueManager, AudioDeviceManager, PlaybackManager, ZoneManager Phase 6, SchedulerManager Phase 8)
-│   │   └── v1/
-│   │       ├── health.py          # Router: GET /health
-│   │       ├── queue.py           # Router: /speak, /queue, /queue/{id}, /clear (+ type=tts|audio sejak Phase 7)
-│   │       ├── playback.py        # Router: /devices, /device, /pause, /resume, /stop
-│   │       ├── zones.py           # Router (Phase 6): /zones, /zones/{name}, /zones/{name}/queue, /zones/{name}/device, /zones/{name}/speak
-│   │       ├── scheduler.py       # Router (Phase 8): /scheduler, /scheduler/{id}, /scheduler/{id}/trigger
-│   │       └── websocket.py       # Router (Phase 9): WebSocket /ws/status — snapshot awal + broadcast real-time (reuse _build_zone_response dari zones.py)
-│   ├── queueing/                 # Domain Queue System (murni, tidak terikat FastAPI)
-│   │   ├── models.py              # QueueItem (+ field TTS + AnnouncementType/source_file Phase 7), QueuePriority, QueueItemStatus, DEFAULT_ACTIVE_STATUSES (dipakai bersama queue.py & zones.py)
-│   │   ├── manager.py             # QueueManager (asyncio.PriorityQueue + registry; enqueue() + param announcement_type/source_file sejak Phase 7; emit event via on_event sejak Phase 9)
-│   │   ├── worker.py              # QueueWorker (Phase 2, TIDAK diubah sejak Phase 3/4/5/6/7/9)
-│   │   ├── tts_processor.py       # TTSQueueProcessor — jembatan QueueWorker <-> TTSService (Phase 3), satu instance per zone sejak Phase 6
-│   │   └── pipeline_processor.py  # AnnouncementPipelineProcessor — Queue→Cache/Generate→Playback→Delay→Berikutnya (Phase 5) + volume_gain per-zone (Phase 6); Stage 2 diisi AnnouncementSourceProcessor sejak Phase 7 (kontrak ItemProcessor identik, kelas ini TIDAK diubah)
-│   ├── announcement/              # Domain Announcement Engine (Phase 7, murni tidak terikat FastAPI/Queue)
-│   │   ├── asset_resolver.py      # AudioAssetResolver — validasi & (jika perlu) konversi file audio statis ke WAV lewat ffmpeg, dengan cache hasil konversi
-│   │   └── source_processor.py    # AnnouncementSourceProcessor — dispatcher Stage 2 pipeline: TTSQueueProcessor (Phase 3) vs AudioAssetResolver (Phase 7) berdasarkan item.announcement_type
-│   ├── tts/                      # Domain TTS Engine (Phase 3, murni tidak terikat FastAPI/Queue; di-share seluruh zone sejak Phase 6)
-│   │   ├── engine_base.py         # Interface TTSEngine (Strategy Pattern)
-│   │   ├── piper_engine.py        # Implementasi Piper (subprocess async)
-│   │   ├── engine_factory.py      # Factory Pattern: nama engine -> instance
-│   │   ├── audio_processor.py     # Post-processing volume & pitch (stdlib wave/audioop) — dipakai ulang untuk zone volume gain (Phase 6)
-│   │   ├── cache.py               # AudioCache berbasis SHA256 (di-share seluruh zone, TIDAK per-zone)
-│   │   ├── service.py             # TTSService: orkestrator cache -> engine -> post-processing
-│   │   └── models.py              # TTSResult
-│   ├── playback/                 # Domain Audio Playback (Phase 4; dipakai lewat pipeline sejak Phase 5; satu instance per zone sejak Phase 6)
-│   │   ├── models.py              # AudioDevice, PlaybackState
-│   │   ├── device_manager.py      # AudioDeviceManager (enumerasi & validasi output device, di-share seluruh zone)
-│   │   └── manager.py             # PlaybackManager (callback-based stream: play/pause/resume/stop/wait_until_finished; emit event via on_event sejak Phase 9, dijembatani dari thread native PortAudio lewat run_coroutine_threadsafe)
-│   ├── zones/                    # Domain Multi Zone (Phase 6, murni tidak terikat FastAPI)
-│   │   ├── models.py              # Zone (metadata: name/enabled/device_id/volume/timestamps), MAIN_ZONE_NAME
-│   │   └── manager.py             # ZoneManager — orkestrasi create/update/delete/lookup zone, membungkus QueueManager+QueueWorker+PlaybackManager+AnnouncementSourceProcessor(Phase 7)+Pipeline per zone; membungkus event_publisher (Phase 9) dengan konteks nama zone
-│   ├── scheduler/                 # Domain Scheduler (Phase 8, murni tidak terikat FastAPI)
-│   │   ├── models.py              # ScheduleRecurrence, AnnouncementSpec, ScheduleEntry, compute_next_run (fungsi murni), parse_time_of_day/parse_run_date
-│   │   └── manager.py             # SchedulerManager — registry jadwal (CRUD, pola sama ZoneManager) + background loop yang meng-enqueue lewat QueueManager.enqueue() milik zone tujuan (tidak diduplikasi)
-│   ├── websocket/                 # Domain WebSocket (Phase 9, murni tidak terikat FastAPI kecuali tipe WebSocket)
-│   │   └── manager.py             # ConnectionManager — registry client WebSocket + broadcast(event_type, data), memenuhi kontrak EventPublisher (core/events.py)
-│   └── schemas/
-│       ├── health.py              # Response schema /health
-│       ├── queue.py                # Request/response schema Queue + TTS + type/file (Phase 7)
-│       ├── playback.py             # Request/response schema Playback
-│       ├── zones.py                # Request/response schema Zone (Phase 6) — reuse schema queue.py/playback.py untuk sub-endpoint queue/device/speak
-│       └── scheduler.py            # Request/response schema Scheduler (Phase 8) — reuse SpeakRequest (queue.py) untuk field `announcement`
-├── config/config.yaml
-├── engines/piper/                # (dibuat manual) binary + model Piper — lihat "Setup Piper" di atas
-├── sounds/                       # (dibuat manual, Phase 7) file audio statis (bell/alarm/jingle/dst) — lihat announcement.sounds_dir
-├── cache/audio/                  # (dibuat otomatis) cache audio hasil TTS, di-share seluruh zone
-├── cache/zone_audio/{nama_zone}/ # (dibuat otomatis) salinan audio sementara ber-gain zone (Phase 6), auto-dihapus setelah diputar
-├── cache/announcement_audio/     # (dibuat otomatis, Phase 7) cache hasil konversi ffmpeg (file non-WAV -> WAV) untuk item type=audio
-├── scripts/
-│   └── manual_test_playback.py   # Alat bantu verifikasi playback manual (bukan bagian API)
-├── logs/
-├── tests/
-├── requirements.txt
-├── pytest.ini
-├── run.bat
-└── README.md
-```
+## Lisensi
 
-## Roadmap
-
-Lihat dokumen roadmap lengkap (`Text To Speech Announcement Server Roadmap`)
-untuk daftar 15 fase pengembangan, dari Project Foundation hingga Future
-Development (multi-engine TTS, Audio over IP, dashboard web, dsb).
+Repository ini belum menyertakan file lisensi. Hubungi maintainer project untuk ketentuan penggunaan.
