@@ -128,6 +128,7 @@ class QueueManager:
         text: str,
         priority: QueuePriority,
         *,
+        engine: str | None = None,
         voice: str = "default",
         speed: float = 1.0,
         pitch: float = 1.0,
@@ -147,6 +148,11 @@ class QueueManager:
         sama: keyword-only dengan default ``AnnouncementType.TTS``/``None``,
         sehingga seluruh pemanggilan lama (Phase 2-6, selalu TTS) tetap
         berperilaku identik tanpa perubahan.
+
+        ``engine`` (V2 Phase 2) mengikuti pola yang sama persis: keyword-only,
+        default ``None`` (= pakai engine default server, lihat
+        ``TTSEngineManager``) — seluruh pemanggilan lama yang tidak pernah
+        tahu soal multi-engine tetap berperilaku identik dengan V1.
         """
         async with self._lock:
             pending_count = sum(1 for item in self._registry.values() if item.status == QueueItemStatus.PENDING)
@@ -164,6 +170,7 @@ class QueueManager:
                 status=QueueItemStatus.PENDING,
                 created_at=now,
                 updated_at=now,
+                engine=engine,
                 voice=voice,
                 speed=speed,
                 pitch=pitch,

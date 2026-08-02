@@ -72,5 +72,10 @@ async def websocket_status(
             await websocket.receive_text()
     except WebSocketDisconnect:
         pass
+    except Exception:  # noqa: BLE001 - satu koneksi bermasalah tidak boleh membuat cleanup gagal atau lolos tanpa
+        # tercatat; menyamakan pola defensive-logging dengan QueueWorker._run()/SchedulerManager._run()
+        # (RC1-4: sebelumnya hanya WebSocketDisconnect yang ditangani eksplisit di sini, error lain
+        # bergantung diam-diam pada penanganan default Starlette tanpa log yang konsisten dengan project ini).
+        logger.exception("Unexpected error pada koneksi WebSocket /ws/status; koneksi akan ditutup.")
     finally:
         await connection_manager.disconnect(websocket)

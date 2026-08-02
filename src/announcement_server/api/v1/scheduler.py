@@ -44,6 +44,7 @@ def _to_announcement_spec(payload) -> AnnouncementSpec:  # noqa: ANN001 - payloa
         text=payload.resolved_text,
         file=payload.file,
         priority=payload.priority,
+        engine=payload.engine,
         voice=payload.voice,
         speed=payload.speed,
         pitch=payload.pitch,
@@ -55,6 +56,7 @@ def _to_announcement_spec(payload) -> AnnouncementSpec:  # noqa: ANN001 - payloa
     "",
     response_model=ScheduleListResponse,
     summary="Melihat daftar seluruh jadwal",
+    description="Mengembalikan seluruh jadwal yang terdaftar di server ini beserta status `enabled` dan `next_run_at` masing-masing.",
 )
 async def list_schedules(scheduler_manager: SchedulerManagerDep) -> ScheduleListResponse:
     schedules = scheduler_manager.list_schedules()
@@ -90,6 +92,7 @@ async def create_schedule(payload: ScheduleCreateRequest, scheduler_manager: Sch
     "/{schedule_id}",
     response_model=ScheduleResponse,
     summary="Melihat detail satu jadwal",
+    description="Mengembalikan detail satu jadwal berdasarkan id. Mengembalikan 404 jika jadwal tidak ditemukan.",
 )
 async def get_schedule(schedule_id: uuid.UUID, scheduler_manager: SchedulerManagerDep) -> ScheduleResponse:
     entry = scheduler_manager.get_schedule(schedule_id)
@@ -116,6 +119,7 @@ async def update_schedule(
     "/{schedule_id}",
     response_model=ScheduleDeleteResponse,
     summary="Menghapus jadwal",
+    description="Menghapus jadwal secara permanen (bukan disable). Mengembalikan 404 jika jadwal tidak ditemukan.",
 )
 async def delete_schedule(schedule_id: uuid.UUID, scheduler_manager: SchedulerManagerDep) -> ScheduleDeleteResponse:
     await scheduler_manager.delete_schedule(schedule_id)

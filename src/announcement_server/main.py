@@ -31,6 +31,7 @@ from announcement_server.api.v1.maintenance import router as maintenance_router
 from announcement_server.api.v1.playback import router as playback_router
 from announcement_server.api.v1.queue import router as queue_router
 from announcement_server.api.v1.scheduler import router as scheduler_router
+from announcement_server.api.v1.tts import router as tts_router
 from announcement_server.api.v1.websocket import router as websocket_router
 from announcement_server.api.v1.zones import router as zones_router
 from announcement_server.core.config import AppSettings, get_settings, validate_runtime_config
@@ -42,6 +43,7 @@ from announcement_server.queueing.models import AnnouncementType, QueuePriority
 from announcement_server.scheduler.manager import SchedulerManager
 from announcement_server.scheduler.models import AnnouncementSpec, ScheduleRecurrence, parse_run_date, parse_time_of_day
 from announcement_server.tts.service import TTSService
+from announcement_server.tts.voice_registry import VoiceRegistry
 from announcement_server.websocket.manager import ConnectionManager
 from announcement_server.zones.manager import ZoneManager
 from announcement_server.zones.models import MAIN_ZONE_NAME
@@ -105,6 +107,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # menggandakannya per zone hanya akan memboroskan resource.
     tts_service = TTSService(settings.tts)
     app.state.tts_service = tts_service
+
+    # Voice Discovery (V2 Phase 5): VoiceRegistry dibangun & di-refresh SEKALI di sini
+    # (bukan background worker berulang -- sesuai batasan Phase 5) memakai
+    # TTSEngineManager milik `tts_service` di atas. Dipakai HANYA oleh endpoint
+    # discovery `GET /tts/*` (api/v1/tts.py) -- TIDAK memengaruhi pipeline sintesis
+    # TTS sama sekali (voice tetap divalidasi oleh engine masing-masing saat
+    # sintesis, persis seperti V1). Kegagalan discovery voice (mis. direktori model
+    # kosong) TIDAK BOLEH menggagalkan startup server -- sama seperti prinsip
+    # graceful degradation Piper/ffmpeg lainnya di lifespan ini.
+    try:
+        voice_registry = await VoiceRegistry.create(tts_service.engine_manager)
+    except Exception:  # noqa: BLE001 - kegagalan discovery voice tidak boleh menggagalkan startup
+        logger.exception("Voice discovery awal gagal, VoiceRegistry dimulai kosong.")
+        voice_registry = VoiceRegistry()
+    app.state.voice_registry = voice_registry
 
     # Announcement Engine (Phase 7): AudioAssetResolver dibangun sekali dan
     # di-share oleh SELURUH zone — rationale identik dengan TTSService di
@@ -256,6 +273,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 text=announcement_def.text,
                 file=announcement_def.file,
                 priority=QueuePriority(announcement_def.priority),
+                engine=announcement_def.engine,
                 voice=announcement_def.voice,
                 speed=announcement_def.speed,
                 pitch=announcement_def.pitch,
@@ -361,6 +379,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     app.include_router(playback_router)
     app.include_router(zones_router)
     app.include_router(scheduler_router)
+    app.include_router(tts_router)
     app.include_router(websocket_router)
     app.include_router(dashboard_router)
     app.include_router(maintenance_router)

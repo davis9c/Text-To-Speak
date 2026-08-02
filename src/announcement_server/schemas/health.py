@@ -19,7 +19,7 @@ class HealthResponse(BaseModel):
             "example": {
                 "status": "ok",
                 "app_name": "Announcement Server",
-                "version": "0.1.0",
+                "version": "2.0.0",
                 "environment": "development",
             }
         }

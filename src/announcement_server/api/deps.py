@@ -22,6 +22,7 @@ from announcement_server.playback.manager import PlaybackManager
 from announcement_server.queueing.manager import QueueManager
 from announcement_server.scheduler.manager import SchedulerManager
 from announcement_server.tts.service import TTSService
+from announcement_server.tts.voice_registry import VoiceRegistry
 from announcement_server.websocket.manager import ConnectionManager
 from announcement_server.zones.manager import ZoneManager
 
@@ -126,6 +127,19 @@ def get_tts_service(request: Request) -> TTSService:
 
 
 TTSServiceDep = Annotated[TTSService, Depends(get_tts_service)]
+
+
+def get_voice_registry(request: Request) -> VoiceRegistry:
+    """Mengambil instance VoiceRegistry tunggal (V2 Phase 5, dibuat & di-refresh sekali saat app startup).
+
+    Dipakai HANYA oleh endpoint discovery (`GET /tts/voices*`) -- TIDAK dipakai oleh
+    pipeline sintesis TTS itu sendiri (validasi voice saat sintesis tetap dilakukan
+    oleh engine masing-masing, persis seperti V1, lihat `tts/service.py`).
+    """
+    return request.app.state.voice_registry
+
+
+VoiceRegistryDep = Annotated[VoiceRegistry, Depends(get_voice_registry)]
 
 
 def get_asset_resolver(request: Request) -> AudioAssetResolver:

@@ -90,6 +90,11 @@ class QueueItem(BaseModel):
     # Disimpan per-item (bukan hanya di request) karena item terus ada di
     # registry setelah request selesai, dan worker (berjalan async, terpisah
     # dari request/response HTTP) butuh parameter ini saat memprosesnya nanti.
+    engine: str | None = Field(
+        default=None,
+        description="Nama TTS engine yang dipakai untuk item ini (mis. 'piper'). "
+        "null = pakai engine default server (perilaku V1, tidak berubah). Diabaikan jika announcement_type='audio'.",
+    )
     voice: str = Field(default="default", description="Voice/model TTS yang dipakai untuk item ini")
     speed: float = Field(default=1.0, description="Kecepatan bicara yang dipakai untuk item ini")
     pitch: float = Field(default=1.0, description="Pitch yang dipakai untuk item ini")

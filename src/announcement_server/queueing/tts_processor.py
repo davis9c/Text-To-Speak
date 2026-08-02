@@ -47,6 +47,7 @@ class TTSQueueProcessor:
             speed=item.speed,
             pitch=item.pitch,
             volume=item.volume,
+            engine=item.engine,
         )
         await self._queue_manager.update_tts_result(
             item.id,

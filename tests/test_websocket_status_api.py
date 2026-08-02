@@ -184,3 +184,31 @@ def test_disconnect_cleans_up_connection_registry(
         assert isolated_connection_manager.connection_count == 1
 
     assert isolated_connection_manager.connection_count == 0
+
+
+def test_unexpected_error_during_session_is_handled_and_cleans_up(
+    isolated_connection_manager: ConnectionManager,
+) -> None:
+    """RC1-4: error TAK TERDUGA (bukan WebSocketDisconnect biasa, mis. bug pada zone_manager)
+    HARUS tetap dibersihkan lewat `finally` (registry koneksi kembali kosong) dan TIDAK boleh
+    membuat proses/test crash -- melengkapi `test_disconnect_cleans_up_connection_registry` yang
+    hanya menguji jalur disconnect bersih."""
+
+    class _BrokenZoneManager:
+        def list_zones(self):  # noqa: ANN201 - test double sederhana, sengaja selalu melempar
+            raise RuntimeError("simulasi bug tak terduga saat membangun snapshot awal")
+
+    get_settings.cache_clear()
+    app = create_app()
+    app.dependency_overrides[get_zone_manager_ws] = lambda: _BrokenZoneManager()
+    app.dependency_overrides[get_connection_manager_ws] = lambda: isolated_connection_manager
+    with TestClient(app) as test_client:
+        # Server menutup koneksi akibat exception tak tertangani di dalam handler --
+        # client TIDAK BOLEH hang menunggu snapshot yang tidak akan pernah dikirim.
+        with pytest.raises(Exception):  # noqa: B017,PT011 - detail exception client bervariasi antar versi Starlette
+            with test_client.websocket_connect("/ws/status") as websocket:
+                websocket.receive_json()
+
+    assert isolated_connection_manager.connection_count == 0
+    app.dependency_overrides.clear()
+    get_settings.cache_clear()

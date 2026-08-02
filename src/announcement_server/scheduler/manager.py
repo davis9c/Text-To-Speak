@@ -318,6 +318,7 @@ class SchedulerManager:
         item = await queue_manager.enqueue(
             text=text,
             priority=spec.priority,
+            engine=spec.engine,
             voice=spec.voice or self._default_voice,
             speed=spec.speed,
             pitch=spec.pitch,

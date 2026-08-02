@@ -119,6 +119,18 @@ async def test_resolve_path_traversal_raises_not_found(sounds_dir: Path, config:
         await resolver.resolve("../../../etc/passwd")
 
 
+async def test_resolve_absolute_path_injection_raises_not_found(sounds_dir: Path, config: AnnouncementConfig) -> None:
+    """RC1-5: kasus lebih subtle dari '../' -- ``Path(sounds_dir) / "/etc/passwd"`` di Python
+    SECARA DIAM-DIAM membuang ``sounds_dir`` sepenuhnya (semantik pathlib: operand kanan yang
+    absolut me-reset anchor), sehingga jika validasi hanya mengandalkan hasil join tanpa
+    containment check terhadap hasil resolve, path absolut bisa lolos tanpa memicu deteksi
+    '../'. Test ini memverifikasi ``_resolve_source_path`` tetap menolaknya lewat pengecekan
+    containment (`sounds_dir_resolved not in candidate.parents`), bukan sekadar mendeteksi '../'."""
+    resolver = AudioAssetResolver(config)
+    with pytest.raises(AudioAssetNotFoundError):
+        await resolver.resolve("/etc/passwd")
+
+
 async def test_resolve_mp3_converts_via_ffmpeg_and_caches(sounds_dir: Path, config: AnnouncementConfig) -> None:
     mp3_path = sounds_dir / "jingle.mp3"
     mp3_path.write_bytes(b"dummy-mp3-bytes")

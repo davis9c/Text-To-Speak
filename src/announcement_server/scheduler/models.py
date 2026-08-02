@@ -46,6 +46,7 @@ class AnnouncementSpec(BaseModel):
     text: str | None = None
     file: str | None = None
     priority: QueuePriority = QueuePriority.NORMAL
+    engine: str | None = None
     voice: str | None = None
     speed: float = 1.0
     pitch: float = 1.0

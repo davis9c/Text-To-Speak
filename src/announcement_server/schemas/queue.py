@@ -48,6 +48,13 @@ class SpeakRequest(BaseModel):
         default=AnnouncementType.TTS,
         description="Sumber audio pengumuman ini: 'tts' (sintesis dari `text`) atau 'audio' (file statis dari `file`).",
     )
+    engine: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Nama TTS engine yang dipakai (mis. 'piper'). Kosongkan (null) untuk memakai engine default "
+        "server (perilaku V1, tidak berubah). Mengembalikan error jika nama engine tidak dikenali/tidak tersedia "
+        "(tidak fallback diam-diam ke engine default). Diabaikan jika type='audio'.",
+    )
     text: str | None = Field(
         default=None,
         max_length=1000,
@@ -65,6 +72,7 @@ class SpeakRequest(BaseModel):
     )
     voice: str | None = Field(
         default=None,
+        max_length=200,
         description="Nama voice/model TTS. Kosongkan (null) untuk memakai default server (tts.default_voice). "
         "Diabaikan jika type='audio'.",
     )
@@ -136,6 +144,11 @@ class QueueItemResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     error_message: str | None = None
+    engine: str | None = Field(
+        default=None,
+        description="Nama TTS engine yang dipakai untuk item ini. null berarti memakai engine default server "
+        "(diabaikan jika type='audio').",
+    )
     voice: str = Field(description="Voice/model TTS yang dipakai untuk item ini (diabaikan jika type='audio')")
     speed: float = Field(description="Kecepatan bicara yang dipakai untuk item ini (diabaikan jika type='audio')")
     pitch: float = Field(description="Pitch yang dipakai untuk item ini (diabaikan jika type='audio')")

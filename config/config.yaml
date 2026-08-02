@@ -30,10 +30,18 @@ logging:
   json_format: false
 
 tts:
-  engine: "piper"                              # Nama engine aktif (harus terdaftar di EngineFactory)
+  engine: "piper"                              # Nama engine default/utama (harus terdaftar di EngineFactory)
+  # additional_engines: ["espeak"]              # (V2, opsional) engine tambahan yang aktif berdampingan dengan `engine` di atas.
+                                                 # Contoh lain: ["espeak", "styletts2"]. Default kosong ([]) = perilaku V1
+                                                 # (hanya satu engine aktif). Lihat README "Setup eSpeak NG"/"Setup StyleTTS2".
   piper_binary_path: "engines/piper/piper.exe"  # Path ke executable Piper (unduh terpisah, lihat README)
   piper_models_dir: "engines/piper/models"      # Direktori berisi <voice>.onnx + <voice>.onnx.json
-  default_voice: "en_US-lessac-medium"          # Voice default jika request tidak menyebutkan voice
+  # espeak_binary_path: "espeak-ng"              # (V2) Path/nama executable eSpeak NG, dipakai hanya jika "espeak" ada di additional_engines/engine
+  # styletts2_checkpoint_path: "engines/styletts2/model.pth"  # (Phase 12) Checkpoint model StyleTTS2, dipakai hanya jika "styletts2" aktif
+  # styletts2_config_path: "engines/styletts2/config.yml"     # (Phase 12) Config model StyleTTS2, dipasangkan dengan checkpoint di atas
+  # styletts2_voices_dir: "engines/styletts2/voices"          # (Phase 12) Direktori katalog voice (file .wav referensi, 1 file = 1 voice)
+  # styletts2_diffusion_steps: 5                               # (Phase 12) Trade-off kualitas vs latensi sintesis StyleTTS2
+  default_voice: "en_US-lessac-medium"          # Voice default jika request tidak menyebutkan voice (namespace Piper)
   generation_timeout_seconds: 30.0              # Timeout sintesis per item
   cache_dir: "cache/audio"                      # Direktori cache audio (key: SHA256)
   max_retries: 2                                # Percobaan ulang (Phase 14) jika sintesis Piper gagal transien

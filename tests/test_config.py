@@ -17,6 +17,7 @@ from announcement_server.core.config import (
     LoggingConfig,
     ScheduleDefinition,
     SchedulerConfig,
+    TTSConfig,
     ZoneDefinition,
     _read_yaml_file,
     get_settings,
@@ -166,6 +167,19 @@ def test_announcement_config_defaults() -> None:
     assert config.sounds_dir == "sounds"
     assert config.ffmpeg_binary_path == "ffmpeg"
     assert config.conversion_timeout_seconds == 30.0
+
+
+def test_tts_config_defaults_engine_is_piper() -> None:
+    """RC1-6: menutup celah cakupan -- sebelum ini TIDAK ADA satu pun test yang membuat
+    `TTSConfig()` tanpa argumen `engine=` eksplisit (seluruh ~15+ file test lain selalu
+    meng-override-nya sendiri). Artinya default field-level ('piper' sebagai engine V1)
+    tidak pernah benar-benar dijamin oleh test manapun -- jika default ini tanpa sengaja
+    berubah, tidak ada test yang akan gagal. Test ini secara eksplisit mengunci kontrak
+    backward-compatibility V1: server yang di-deploy tanpa mengubah `tts.engine` di
+    config.yaml HARUS tetap memakai Piper."""
+    config = TTSConfig()
+    assert config.engine == "piper"
+    assert config.additional_engines == []  # V2 Phase 7: opt-in, kosong = perilaku V1/Phase 2-6
 
 
 def test_scheduler_config_defaults() -> None:

@@ -92,11 +92,52 @@ class AppMetadata(BaseModel):
 
 
 class TTSConfig(BaseModel):
-    """Konfigurasi TTS Engine (Phase 3)."""
+    """Konfigurasi TTS Engine (Phase 3, diperluas Phase 7).
+
+    Catatan audit isolasi Piper (V2 Phase 3): ``piper_binary_path`` dan
+    ``piper_models_dir`` di bawah ini SPESIFIK untuk ``PiperEngine`` — hanya
+    ``PiperEngine`` yang membacanya (lihat ``tts/piper_engine.py``).
+    Field ini SENGAJA dibiarkan berada di sini bersama field generic
+    (``engine``, ``default_voice``, ``cache_dir``, dst) alih-alih dipindah ke
+    sub-config per-engine terpisah, karena ``EngineFactory.create(config)``
+    cukup mengoper seluruh ``TTSConfig`` ke constructor engine, yang lalu
+    memilih sendiri field mana yang relevan untuknya. Tidak ada layer
+    generic (TTSService, TTSEngineManager, Queue, Worker, Scheduler, Zone,
+    API) yang membaca ``piper_binary_path``/``piper_models_dir``/
+    ``espeak_binary_path`` secara langsung — murni kerapian struktur
+    config, BUKAN kebocoran perilaku.
+
+    ``espeak_binary_path`` (V2 Phase 7): sama persis polanya dengan
+    ``piper_binary_path`` — spesifik untuk ``EspeakEngine`` saja.
+
+    ``styletts2_checkpoint_path``/``styletts2_config_path``/``styletts2_voices_dir``/
+    ``styletts2_diffusion_steps`` (Phase 12): spesifik untuk ``StyleTTS2Engine`` saja,
+    mengikuti pola co-location yang sama. Parameter style StyleTTS2 lain (alpha/beta/
+    embedding_scale) SENGAJA tidak dieksposisikan sebagai config -- dipertahankan sebagai
+    default tetap di dalam engine (keputusan Phase 10: tidak terbukti butuh Core/config
+    change). ``diffusion_steps`` adalah satu-satunya knob yang dieksposisikan karena
+    berdampak langsung pada latensi sintesis (trade-off operasional, analog
+    ``generation_timeout_seconds``), bukan sekadar preferensi gaya suara.
+
+    ``additional_engines`` (V2 Phase 7): mekanisme generic untuk
+    mengaktifkan engine tambahan di ``TTSEngineManager`` selain engine
+    default (``engine``). SENGAJA default kosong (``[]``) sehingga
+    ``TTSConfig()`` tanpa perubahan apa pun tetap 100% berperilaku sama
+    seperti sebelum Phase 7 (hanya satu engine aktif) — lihat
+    ``tts/engine_manager.py``.
+    """
 
     engine: str = Field(
         default="piper",
-        description="Nama engine TTS aktif. Harus terdaftar di EngineFactory (lihat tts/engine_factory.py).",
+        description="Nama engine TTS default/aktif utama. Harus terdaftar di EngineFactory (lihat tts/engine_factory.py).",
+    )
+    additional_engines: list[str] = Field(
+        default_factory=list,
+        description="Nama engine tambahan (selain `engine` default) yang turut diaktifkan di TTSEngineManager, "
+        "mis. ['espeak']. Kosong (default) = hanya engine default yang aktif -- perilaku identik dengan sebelum "
+        "Phase 7. Setiap engine di sini membangun instance sendiri secara graceful: jika binary/dependency-nya "
+        "belum terpasang, server TETAP bisa start (engine tersebut hanya akan gagal saat benar-benar dipakai "
+        "untuk sintesis, sama seperti perilaku Piper jika binary-nya hilang).",
     )
     piper_binary_path: str = Field(
         default="engines/piper/piper.exe",
@@ -106,6 +147,33 @@ class TTSConfig(BaseModel):
     piper_models_dir: str = Field(
         default="engines/piper/models",
         description="Direktori berisi pasangan file model Piper (<voice>.onnx dan <voice>.onnx.json).",
+    )
+    espeak_binary_path: str = Field(
+        default="espeak-ng",
+        description="Path/nama executable espeak-ng (V2 Phase 7). Default 'espeak-ng' mengasumsikan binary "
+        "sudah ada di PATH sistem setelah diinstall terpisah (lihat README) -- TIDAK disertakan dalam repo ini, "
+        "sama seperti Piper.",
+    )
+    styletts2_checkpoint_path: str = Field(
+        default="engines/styletts2/model.pth",
+        description="Path ke checkpoint model StyleTTS2 (.pth). StyleTTS2 TIDAK disertakan dalam repo ini "
+        "(model + dependency Python seperti `styletts2`/`torch` bersifat opsional, diinstall terpisah) -- "
+        "hanya relevan jika `styletts2` diaktifkan lewat `engine`/`additional_engines`.",
+    )
+    styletts2_config_path: str = Field(
+        default="engines/styletts2/config.yml",
+        description="Path ke file config model StyleTTS2 (.yml), dipasangkan dengan styletts2_checkpoint_path.",
+    )
+    styletts2_voices_dir: str = Field(
+        default="engines/styletts2/voices",
+        description="Direktori berisi file audio referensi (<voice>.wav) yang dipakai sebagai katalog voice "
+        "StyleTTS2 (voice cloning dari referensi terkurasi, bukan dari upload bebas -- lihat keputusan Phase 10).",
+    )
+    styletts2_diffusion_steps: int = Field(
+        default=5,
+        gt=0,
+        description="Jumlah langkah diffusion sampling StyleTTS2 -- trade-off kualitas vs latensi sintesis. "
+        "Default 5 mengikuti default resmi paket referensi StyleTTS2.",
     )
     default_voice: str = Field(
         default="en_US-lessac-medium",
@@ -267,6 +335,10 @@ class ScheduleAnnouncementDefinition(BaseModel):
     text: str | None = Field(default=None, description="Wajib diisi jika type='tts'")
     file: str | None = Field(default=None, description="Wajib diisi jika type='audio' (path relatif announcement.sounds_dir)")
     priority: str = Field(default="normal", description="'urgent' | 'high' | 'normal' | 'low'")
+    engine: str | None = Field(
+        default=None,
+        description="Nama TTS engine (mis. 'piper'). null = pakai engine default server (tts.engine). Diabaikan jika type='audio'.",
+    )
     voice: str | None = Field(default=None, description="Diabaikan jika type='audio'")
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
     pitch: float = Field(default=1.0, ge=0.5, le=2.0)

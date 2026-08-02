@@ -30,6 +30,17 @@ async def test_enqueue_stores_tts_params(manager: QueueManager) -> None:
     assert item.cache_hit is None
 
 
+async def test_enqueue_without_engine_defaults_to_none(manager: QueueManager) -> None:
+    """Backward compat V1: pemanggilan lama yang tidak pernah tahu soal `engine` tetap berperilaku sama."""
+    item = await manager.enqueue("Halo", QueuePriority.NORMAL)
+    assert item.engine is None
+
+
+async def test_enqueue_stores_explicit_engine(manager: QueueManager) -> None:
+    item = await manager.enqueue("Halo", QueuePriority.NORMAL, engine="piper")
+    assert item.engine == "piper"
+
+
 async def test_update_tts_result_sets_audio_fields_without_changing_status(manager: QueueManager) -> None:
     item = await manager.enqueue("Halo", QueuePriority.NORMAL)
     await manager.dequeue_for_processing()  # status -> PROCESSING

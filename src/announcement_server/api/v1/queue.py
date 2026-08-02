@@ -56,6 +56,7 @@ async def speak(payload: SpeakRequest, manager: QueueManagerDep, settings: Setti
     item = await manager.enqueue(
         text=payload.resolved_text,
         priority=payload.priority,
+        engine=payload.engine,
         voice=voice,
         speed=payload.speed,
         pitch=payload.pitch,

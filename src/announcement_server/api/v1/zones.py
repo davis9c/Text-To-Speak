@@ -202,6 +202,7 @@ async def speak_to_zone(name: str, payload: SpeakRequest, zone_manager: ZoneMana
     item = await queue_manager.enqueue(
         text=payload.resolved_text,
         priority=payload.priority,
+        engine=payload.engine,
         voice=voice,
         speed=payload.speed,
         pitch=payload.pitch,
