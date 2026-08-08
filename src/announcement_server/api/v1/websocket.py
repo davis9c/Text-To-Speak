@@ -25,6 +25,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Annotated
 
+from anyio import CancelScope
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from announcement_server.api.v1.zones import _build_zone_response
@@ -77,5 +78,20 @@ async def websocket_status(
         # (RC1-4: sebelumnya hanya WebSocketDisconnect yang ditangani eksplisit di sini, error lain
         # bergantung diam-diam pada penanganan default Starlette tanpa log yang konsisten dengan project ini).
         logger.exception("Unexpected error pada koneksi WebSocket /ws/status; koneksi akan ditutup.")
+        # RC1-4: setelah error tak terduga, koneksi HARUS ditutup eksplisit (bukan hanya dicatat lalu
+        # membiarkan handler selesai) -- kalau tidak, client (mis. UI TOA) hang selamanya menunggu
+        # snapshot/event yang tidak akan pernah dikirim (diverifikasi di
+        # test_unexpected_error_during_session_is_handled_and_cleans_up).
+        try:
+            await websocket.close(code=1011)
+        except Exception:  # noqa: BLE001 - koneksi sudah mati bersamaan dengan error; tutup gagal tidak perlu ditangani
+            logger.debug("Koneksi sudah tidak aktif saat mencoba menutup setelah error.", exc_info=True)
     finally:
-        await connection_manager.disconnect(websocket)
+        # RC1-4: cleanup registry WAJIB selalu berjalan, bahkan saat task ini
+        # di-cancel (mis. TestClient menutup koneksi lewat cancel scope, atau
+        # shutdown server) -- tanpa shield, await di dalam `disconnect()` bisa
+        # ikut ter-cancel sehingga koneksi tertinggal di registry selamanya
+        # (kebocoran connection_count, diverifikasi di
+        # test_disconnect_cleans_up_connection_registry).
+        with CancelScope(shield=True):
+            await connection_manager.disconnect(websocket)

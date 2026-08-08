@@ -77,7 +77,11 @@ async def test_pause_emits_pause_event(
     recorder.events.clear()
 
     playback_manager.pause()
-    await asyncio.sleep(0)  # beri kesempatan loop menjalankan coroutine yang dijadwalkan run_coroutine_threadsafe
+    # Beri kesempatan loop menjalankan coroutine yang dijadwalkan
+    # `run_coroutine_threadsafe` (butuh >=2 siklus loop: siklus 1 memanggil
+    # callback penjadwal yang membuat task, siklus 2 menjalankan task tsb).
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
 
     assert len(recorder.events) == 1
     event_type, _data = recorder.events[0]
@@ -89,10 +93,15 @@ async def test_resume_emits_resume_event(
 ) -> None:
     await playback_manager.play(str(wav_file))
     playback_manager.pause()
+    # Event 'pause' juga dijadwalkan lewat `run_coroutine_threadsafe` -- tunggu
+    # sampai benar-benar terekam (>=2 siklus loop) SEBELUM `clear()`, supaya
+    # event tsb tidak bocor ke fase resume.
+    await asyncio.sleep(0)
     await asyncio.sleep(0)
     recorder.events.clear()
 
     playback_manager.resume()
+    await asyncio.sleep(0)
     await asyncio.sleep(0)
 
     assert len(recorder.events) == 1
@@ -136,6 +145,7 @@ async def test_natural_finish_emits_idle_event(
     stream.callback(outdata, 2000, None, None)
     with pytest.raises(FakeSoundDevice.CallbackStop):
         stream.callback(outdata, 2000, None, None)
+    await asyncio.sleep(0)
     await asyncio.sleep(0)
 
     assert len(recorder.events) == 1

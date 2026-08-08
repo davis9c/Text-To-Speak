@@ -10,7 +10,6 @@ instalasi ffmpeg sungguhan.
 
 from __future__ import annotations
 
-import stat
 import sys
 import wave
 from pathlib import Path
@@ -25,6 +24,8 @@ from announcement_server.core.exceptions import (
 )
 from announcement_server.announcement.asset_resolver import AudioAssetResolver
 
+from tests.conftest import make_fake_executable
+
 FAKE_FFMPEG_SCRIPT = '''#!{python_executable}
 import sys
 import wave
@@ -38,6 +39,8 @@ if "FAIL_EXIT_CODE" in " ".join(args):
 
 if "FAIL_TIMEOUT" in " ".join(args):
     import time
+    sys.stdout.close()
+    sys.stderr.close()
     time.sleep(5)
     sys.exit(0)
 
@@ -59,10 +62,7 @@ def sounds_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def fake_ffmpeg_binary(tmp_path: Path) -> Path:
-    script_path = tmp_path / "fake_ffmpeg.py"
-    script_path.write_text(FAKE_FFMPEG_SCRIPT.format(python_executable=sys.executable))
-    script_path.chmod(script_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-    return script_path
+    return make_fake_executable(FAKE_FFMPEG_SCRIPT.format(python_executable=sys.executable), "fake_ffmpeg", tmp_path)
 
 
 def _write_wav(path: Path) -> None:

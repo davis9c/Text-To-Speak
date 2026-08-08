@@ -191,7 +191,10 @@ async def test_pipeline_chime_playback_failure_does_not_fail_announcement(
     chime_path = _write_wav(sounds_dir / "chime.wav")
 
     manager = QueueManager(max_size=10, max_history=10)
-    playback = FakePlaybackManager(raise_on_path_substring="chime")
+    # Substring `chime.wav` (bukan `chime`): nama direktori tmp pytest mengandung
+    # nama test ("test_pipeline_chime_..."), jadi `"chime"` ikut match path
+    # pengumuman utama dan membuatnya ikut "gagal" (play_calls jadi kosong).
+    playback = FakePlaybackManager(raise_on_path_substring="chime.wav")
     pipeline = await _build_pipeline(manager, playback, output_dir, asset_resolver)
 
     await manager.enqueue("Chime gagal putar", QueuePriority.NORMAL, voice="v1", chime_file="chime.wav")
@@ -202,7 +205,9 @@ async def test_pipeline_chime_playback_failure_does_not_fail_announcement(
     # play chime DICOBA (tercatat di play_attempts) lalu gagal; pengumuman tetap diputar.
     assert playback.play_attempts == [str(chime_path), str(output_dir / f"{processing_item.id}.wav")]
     assert playback.play_calls == [str(output_dir / f"{processing_item.id}.wav")]
-    assert playback.wait_calls == 2
+    # wait_until_finished hanya dipanggil setelah play() BERHASIL (lihat _play_audio_file)
+    # -- karena chime gagal diputar, hanya pengumuman yang ditunggu (1x).
+    assert playback.wait_calls == 1
 
 
 async def test_pipeline_plays_chime_for_audio_type_item(

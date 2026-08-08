@@ -24,6 +24,9 @@ from announcement_server.tts.service import TTSService
 
 
 class FakeEngine(TTSEngine):
+    def __init__(self, config: TTSConfig) -> None:
+        self.config = config
+
     async def synthesize(self, *, text: str, voice: str, speed: float) -> bytes:
         import io
         import wave

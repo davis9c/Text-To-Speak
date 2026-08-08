@@ -244,8 +244,12 @@ class QueueManager:
                 logger.info("Item selesai diproses: id=%s", item_id)
                 result = item.model_copy()
             self._prune_history_locked()
-        self._queue.task_done()
+        # `task_done()` hanya untuk item yang benar-benar ter-dequeue (lihat kontrak
+        # `dequeue_for_processing()`): memanggilnya untuk item tak dikenal akan
+        # membuat hitungan `unfinished_tasks` negatif (ValueError), padahal tidak
+        # ada task yang pernah di-get untuk item tsb.
         if result is not None:
+            self._queue.task_done()
             await self._on_event(EVENT_QUEUE_CHANGED, _item_event_payload(result, reason="completed"))
             await self._on_event(EVENT_FINISHED, _item_event_payload(result, reason="completed"))
 
@@ -261,8 +265,8 @@ class QueueManager:
                 logger.warning("Item gagal diproses: id=%s error=%s", item_id, error_message)
                 result = item.model_copy()
             self._prune_history_locked()
-        self._queue.task_done()
         if result is not None:
+            self._queue.task_done()
             await self._on_event(EVENT_QUEUE_CHANGED, _item_event_payload(result, reason="failed"))
             await self._on_event(EVENT_FINISHED, _item_event_payload(result, reason="failed"))
 

@@ -11,6 +11,7 @@ sendiri (bukan lifespan aplikasi sungguhan).
 from __future__ import annotations
 
 import io
+import time
 import wave
 from collections.abc import Iterator
 from pathlib import Path
@@ -36,6 +37,9 @@ from tests.test_playback_manager import FakeSoundDevice
 
 class FakeEngine(TTSEngine):
     """Engine TTS palsu: menghasilkan WAV valid tanpa memanggil Piper asli."""
+
+    def __init__(self, config: TTSConfig) -> None:
+        self.config = config
 
     async def synthesize(self, *, text: str, voice: str, speed: float) -> bytes:
         buffer = io.BytesIO()
@@ -183,6 +187,14 @@ def test_disconnect_cleans_up_connection_registry(
         websocket.receive_json()  # snapshot
         assert isolated_connection_manager.connection_count == 1
 
+    # Starlette 0.41 TestClient menutup koneksi lewat cancel scope portal (bukan close
+    # frame WS yang ditunggu server), sehingga `disconnect()` sisi server bisa menyusul
+    # beberapa saat setelah blok `with` keluar -- tunggu sampai selesai secara
+    # deterministik. (Kehandalan pembersihan itu sendiri dijamin oleh CancelScope
+    # shield di api/v1/websocket.py: koneksi TIDAK akan pernah tertinggal di registry.)
+    deadline = time.monotonic() + 5.0
+    while isolated_connection_manager.connection_count > 0 and time.monotonic() < deadline:
+        time.sleep(0.01)
     assert isolated_connection_manager.connection_count == 0
 
 

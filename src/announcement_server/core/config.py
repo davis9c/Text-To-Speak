@@ -420,13 +420,20 @@ class YamlConfigSettingsSource(PydanticBaseSettingsSource):
     deployment/production tanpa mengedit file config di server).
     """
 
+    def __init__(self, settings_cls, yaml_config_path: str | None = None):  # type: ignore[no-untyped-def]
+        super().__init__(settings_cls)
+        # `yaml_config_path` yang diteruskan lewat init kwargs (mis. test, atau
+        # `get_settings(config_path=...)`) MENANG atas model_config — sebelumnya
+        # argumen tsb diabaikan karena `self.config` hanya berisi model_config,
+        # sehingga path yang diberikan pemanggil tidak pernah dipakai.
+        self._yaml_config_path = yaml_config_path or str(self.config.get("yaml_config_path", str(DEFAULT_CONFIG_PATH)))
+
     def get_field_value(self, field, field_name):  # type: ignore[override]
         # Tidak dipakai langsung karena kita override __call__ secara penuh.
         return None, field_name, False
 
     def __call__(self) -> dict[str, Any]:
-        config_path_str = self.config.get("yaml_config_path", str(DEFAULT_CONFIG_PATH))
-        return _read_yaml_file(Path(config_path_str))
+        return _read_yaml_file(Path(self._yaml_config_path))
 
 
 class AppSettings(BaseSettings):
@@ -477,7 +484,7 @@ class AppSettings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        yaml_source = YamlConfigSettingsSource(settings_cls)
+        yaml_source = YamlConfigSettingsSource(settings_cls, init_settings.init_kwargs.get("yaml_config_path"))
         # init_settings & env_settings di depan (prioritas lebih tinggi) daripada yaml_source.
         return (init_settings, env_settings, dotenv_settings, yaml_source, file_secret_settings)
 

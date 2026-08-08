@@ -12,7 +12,6 @@ hasil eksekusi nyata -- sebaiknya diverifikasi ulang terhadap binary asli.
 
 from __future__ import annotations
 
-import stat
 import sys
 from pathlib import Path
 
@@ -26,6 +25,8 @@ from announcement_server.core.exceptions import (
 )
 from announcement_server.tts.engine_base import TTSEngine
 from announcement_server.tts.espeak_engine import EspeakEngine
+
+from tests.conftest import make_fake_executable
 
 FAKE_ESPEAK_SCRIPT = '''#!{python_executable}
 import sys
@@ -60,6 +61,8 @@ if "FAIL_EXIT_CODE" in text:
 
 if "FAIL_TIMEOUT" in text:
     import time
+    sys.stdout.close()
+    sys.stderr.close()
     time.sleep(5)
     sys.exit(0)
 
@@ -78,10 +81,7 @@ sys.exit(0)
 
 @pytest.fixture()
 def fake_espeak_binary(tmp_path: Path) -> Path:
-    script_path = tmp_path / "fake_espeak.py"
-    script_path.write_text(FAKE_ESPEAK_SCRIPT.format(python_executable=sys.executable))
-    script_path.chmod(script_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-    return script_path
+    return make_fake_executable(FAKE_ESPEAK_SCRIPT.format(python_executable=sys.executable), "fake_espeak", tmp_path)
 
 
 @pytest.fixture()

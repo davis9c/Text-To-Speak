@@ -32,6 +32,9 @@ from announcement_server.zones.models import MAIN_ZONE_NAME
 class FakeEngine(TTSEngine):
     """Engine TTS palsu: menghasilkan WAV valid tanpa memanggil Piper asli."""
 
+    def __init__(self, config: TTSConfig) -> None:
+        self.config = config
+
     async def synthesize(self, *, text: str, voice: str, speed: float) -> bytes:
         buffer = io.BytesIO()
         with wave.open(buffer, "wb") as writer:

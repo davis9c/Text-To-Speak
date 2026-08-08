@@ -6,6 +6,10 @@
 # --- Web Framework ---
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
+# Dipakai langsung di api/v1/websocket.py (CancelScope shield untuk memastikan
+# cleanup registry berjalan walau task di-cancel) -- sebelumnya hanya dependency
+# transitif via fastapi/starlette, sekarang dijamin pin-nya eksplisit.
+anyio==4.14.2
 
 # --- Configuration & Validation ---
 pydantic==2.10.4

@@ -108,6 +108,9 @@ async def test_refresh_replaces_previous_state_not_merges() -> None:
     class _EngineWithMutableVoices(TTSEngine):
         voices: list[VoiceProfile] = []
 
+        def __init__(self, config: TTSConfig) -> None:
+            self.config = config
+
         async def synthesize(self, *, text: str, voice: str, speed: float) -> bytes:  # pragma: no cover
             return b""
 

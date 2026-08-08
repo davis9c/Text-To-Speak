@@ -41,6 +41,9 @@ class FakeEngine(TTSEngine):
     """Engine TTS palsu: menghasilkan WAV dengan amplitudo tidak-nol (bukan silence) supaya
     penerapan volume_gain benar-benar bisa diverifikasi lewat perubahan byte audio."""
 
+    def __init__(self, config: TTSConfig) -> None:
+        self.config = config
+
     async def synthesize(self, *, text: str, voice: str, speed: float) -> bytes:
         return _make_wav_bytes()
 

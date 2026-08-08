@@ -14,6 +14,7 @@ import uuid
 from typing import Any
 
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -278,7 +279,11 @@ def register_exception_handlers(app: FastAPI) -> None:
                 request_id,
                 "REQUEST_VALIDATION_ERROR",
                 "Request tidak valid.",
-                {"errors": exc.errors()},
+                # `jsonable_encoder` (pola yang sama seperti handler default FastAPI):
+                # pydantic v2 dapat menaruh objek non-JSON (mis. instance ``ValueError``
+                # pada ctx konversi tipe) di dalam ``exc.errors()`` -- tanpa ini, membangun
+                # response 422 melempar ``TypeError: ... is not JSON serializable``.
+                {"errors": jsonable_encoder(exc.errors())},
             ),
         )
 

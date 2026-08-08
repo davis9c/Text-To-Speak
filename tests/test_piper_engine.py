@@ -11,7 +11,6 @@ bergantung pada instalasi Piper yang sesungguhnya.
 
 from __future__ import annotations
 
-import stat
 import sys
 import wave
 from pathlib import Path
@@ -26,6 +25,8 @@ from announcement_server.core.exceptions import (
 )
 from announcement_server.tts.engine_base import TTSEngine
 from announcement_server.tts.piper_engine import PiperEngine
+
+from tests.conftest import make_fake_executable
 
 FAKE_PIPER_SCRIPT = '''#!{python_executable}
 import sys
@@ -54,6 +55,12 @@ if "FAIL_EXIT_CODE" in text:
 
 if "FAIL_TIMEOUT" in text:
     import time
+    # Tutup pipe stdout/stderr SEBELUM tidur: di Windows, engine memakai
+    # Proactor — cancel `process.communicate()` pada timeout baru selesai
+    # ketika pipe tertutup (EOF). Tanpa ini, orphan yang masih tidur 5 detik
+    # menahan pipe sehingga setiap percobaan retry menjadi lambat.
+    sys.stdout.close()
+    sys.stderr.close()
     time.sleep(5)
     sys.exit(0)
 
@@ -77,10 +84,7 @@ def models_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def fake_piper_binary(tmp_path: Path) -> Path:
-    script_path = tmp_path / "fake_piper.py"
-    script_path.write_text(FAKE_PIPER_SCRIPT.format(python_executable=sys.executable))
-    script_path.chmod(script_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-    return script_path
+    return make_fake_executable(FAKE_PIPER_SCRIPT.format(python_executable=sys.executable), "fake_piper", tmp_path)
 
 
 @pytest.fixture()
