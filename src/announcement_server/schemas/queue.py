@@ -40,6 +40,11 @@ class SpeakRequest(BaseModel):
                     "file": "sounds/bell.mp3",
                     "priority": "high",
                 },
+                {
+                    "type": "tts",
+                    "text": "Pengumuman dengan chime pembuka.",
+                    "chime": "chime.wav",
+                },
             ]
         }
     )
@@ -97,6 +102,13 @@ class SpeakRequest(BaseModel):
         ge=0.0,
         le=2.0,
         description="Volume relatif. 1.0 = normal, 0.0 = bisu, 2.0 = 2x lebih keras.",
+    )
+    chime: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Path file audio chime (relatif terhadap announcement.sounds_dir pada config.yaml), "
+        "mis. 'chime.wav'. OPSIONAL — jika diisi, chime diputar SEKALI SEBELUM pengumuman utama "
+        "(berlaku untuk type='tts' maupun type='audio'). Kosongkan (null) untuk tanpa chime.",
     )
 
     @model_validator(mode="after")
@@ -160,6 +172,10 @@ class QueueItemResponse(BaseModel):
         default=None,
         description="True jika audio diambil dari cache (TTS) atau file WAV dipakai langsung/hasil konversi sudah ada (audio)",
     )
+    chime: str | None = Field(
+        default=None,
+        description="Path file audio chime yang diputar sebelum pengumuman utama. null = tanpa chime.",
+    )
     position: int | None = Field(
         default=None,
         description="Posisi 1-based di antara item PENDING (1 = akan diproses berikutnya). null jika bukan PENDING.",
@@ -177,6 +193,7 @@ class QueueItemResponse(BaseModel):
         data = item.model_dump()
         data["type"] = data.pop("announcement_type")
         data["file"] = data.pop("source_file")
+        data["chime"] = data.pop("chime_file")
         return cls(**data, position=position)
 
 

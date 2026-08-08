@@ -41,6 +41,17 @@ async def test_enqueue_stores_explicit_engine(manager: QueueManager) -> None:
     assert item.engine == "piper"
 
 
+async def test_enqueue_stores_chime_file(manager: QueueManager) -> None:
+    item = await manager.enqueue("Halo", QueuePriority.NORMAL, chime_file="chime.wav")
+    assert item.chime_file == "chime.wav"
+
+
+async def test_enqueue_without_chime_defaults_to_none(manager: QueueManager) -> None:
+    """Backward compat: pemanggilan lama yang tidak pernah tahu soal chime tetap tanpa chime."""
+    item = await manager.enqueue("Halo", QueuePriority.NORMAL)
+    assert item.chime_file is None
+
+
 async def test_update_tts_result_sets_audio_fields_without_changing_status(manager: QueueManager) -> None:
     item = await manager.enqueue("Halo", QueuePriority.NORMAL)
     await manager.dequeue_for_processing()  # status -> PROCESSING

@@ -49,6 +49,7 @@ def _to_announcement_spec(payload) -> AnnouncementSpec:  # noqa: ANN001 - payloa
         speed=payload.speed,
         pitch=payload.pitch,
         volume=payload.volume,
+        chime=payload.chime,
     )
 
 

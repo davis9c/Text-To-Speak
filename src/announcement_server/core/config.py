@@ -343,6 +343,11 @@ class ScheduleAnnouncementDefinition(BaseModel):
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
     pitch: float = Field(default=1.0, ge=0.5, le=2.0)
     volume: float = Field(default=1.0, ge=0.0, le=2.0)
+    chime: str | None = Field(
+        default=None,
+        description="Path file audio chime (relatif announcement.sounds_dir), mis. 'chime.wav'. "
+        "OPSIONAL — jika diisi, chime diputar sebelum pengumuman utama jadwal ini.",
+    )
 
 
 class ScheduleDefinition(BaseModel):

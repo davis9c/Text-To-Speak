@@ -66,9 +66,11 @@ class TTSService:
         tts_engine = self._engine_manager.get(engine)
         resolved_engine_name = engine if engine is not None else self._engine_manager.default_engine_name
 
+        effective_voice = voice or self._config.default_voice
+
         cache_key = AudioCache.compute_key(
             engine=resolved_engine_name,
-            voice=voice,
+            voice=effective_voice,
             text=text,
             speed=speed,
             pitch=pitch,
@@ -77,13 +79,53 @@ class TTSService:
 
         cached_path = await self._cache.get(cache_key)
         if cached_path is not None:
-            logger.info("TTS cache HIT: key=%s voice=%s engine=%s", cache_key[:12], voice, resolved_engine_name)
+            logger.info("TTS cache HIT: key=%s voice=%s engine=%s", cache_key[:12], effective_voice, resolved_engine_name)
             return TTSResult(audio_file_path=str(cached_path), cache_hit=True)
 
+        # Jaring pengaman default voice (hanya untuk voice DEFAULT server, bukan voice
+        # yang diminta eksplisit): jika `tts.default_voice` pada config tidak tersedia
+        # di engine (mis. model belum diunduh / nama salah), fallback ke voice pertama
+        # yang benar-benar tersedia agar request tanpa `voice` tetap berhasil — dengan
+        # peringatan jelas di log. Request dengan `voice` EKSPLISIT tetap gagal dengan
+        # VoiceNotFoundError (semantik terdokumentasi tidak berubah).
+        if effective_voice == self._config.default_voice:
+            try:
+                available = [v for v in await tts_engine.list_voices() if v.available]
+            except Exception as exc:  # noqa: BLE001 — discovery gagal tidak boleh mematikan sintesis
+                logger.warning("Voice discovery gagal saat fallback default voice: %s", exc)
+                available = []
+            if available and not any(v.id == effective_voice for v in available):
+                fallback_voice = available[0].id
+                logger.warning(
+                    "default_voice '%s' tidak tersedia di engine '%s' — fallback ke voice '%s'. "
+                    "Perbaiki tts.default_voice pada config.yaml agar memakai voice yang diinginkan.",
+                    effective_voice,
+                    resolved_engine_name,
+                    fallback_voice,
+                )
+                effective_voice = fallback_voice
+                cache_key = AudioCache.compute_key(
+                    engine=resolved_engine_name,
+                    voice=effective_voice,
+                    text=text,
+                    speed=speed,
+                    pitch=pitch,
+                    volume=volume,
+                )
+                cached_path = await self._cache.get(cache_key)
+                if cached_path is not None:
+                    logger.info(
+                        "TTS cache HIT (voice fallback): key=%s voice=%s engine=%s",
+                        cache_key[:12],
+                        effective_voice,
+                        resolved_engine_name,
+                    )
+                    return TTSResult(audio_file_path=str(cached_path), cache_hit=True)
+
         logger.info(
-            "TTS cache MISS: key=%s voice=%s -> memanggil engine '%s'", cache_key[:12], voice, resolved_engine_name
+            "TTS cache MISS: key=%s voice=%s -> memanggil engine '%s'", cache_key[:12], effective_voice, resolved_engine_name
         )
-        raw_audio = await tts_engine.synthesize(text=text, voice=voice, speed=speed)
+        raw_audio = await tts_engine.synthesize(text=text, voice=effective_voice, speed=speed)
 
         processed_audio = self._processor.apply_volume(raw_audio, volume)
         processed_audio = self._processor.apply_pitch(processed_audio, pitch)

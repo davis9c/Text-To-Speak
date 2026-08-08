@@ -63,6 +63,7 @@ import logging
 import uuid
 from pathlib import Path
 
+from announcement_server.announcement.asset_resolver import AudioAssetResolver
 from announcement_server.core.exceptions import AppError
 from announcement_server.playback.manager import PlaybackManager
 from announcement_server.queueing.manager import QueueManager
@@ -85,6 +86,7 @@ class AnnouncementPipelineProcessor:
         post_playback_delay_seconds: float = 0.5,
         volume_gain: float = 1.0,
         scaled_audio_dir: str | Path | None = None,
+        asset_resolver: AudioAssetResolver | None = None,
     ) -> None:
         self._tts_processor = tts_processor
         self._queue_manager = queue_manager
@@ -98,6 +100,12 @@ class AnnouncementPipelineProcessor:
         # gain custom (mis. "main") tidak membuat direktori kosong.
         self._scaled_audio_dir = Path(scaled_audio_dir) if scaled_audio_dir is not None else Path("cache/zone_audio")
         self._audio_processor = AudioProcessor()
+        # Resolver file audio statis (Phase 7, di-share seluruh zone) —
+        # dipakai untuk me-resolve & (jika perlu) mengonversi file chime ke
+        # WAV sebelum diputar. Opsional: jika None, chime dilewati dengan
+        # peringatan di log (mis. saat unit test membangun pipeline tanpa
+        # resolver). Lihat `_play_chime` di bawah.
+        self._asset_resolver = asset_resolver
 
     @property
     def volume_gain(self) -> float:
@@ -136,11 +144,46 @@ class AnnouncementPipelineProcessor:
                 item.id,
             )
         else:
+            # Chime (opsional): diputar SEKALI SEBELUM pengumuman utama.
+            # Best-effort — jika file chime hilang/tidak bisa di-resolve,
+            # pengumuman tetap diputar tanpa chime (lihat `_play_chime`).
+            if updated_item.chime_file:
+                await self._play_chime(updated_item)
             await self._play_and_wait(item, audio_file_path)
 
         # Tahap 4: Delay, sebelum QueueWorker melanjutkan ke tahap 5 (Queue Berikutnya).
         if self._post_playback_delay_seconds > 0:
             await asyncio.sleep(self._post_playback_delay_seconds)
+
+    async def _play_chime(self, item: QueueItem) -> None:
+        """Memutar efek chime (``item.chime_file``) SEBELUM pengumuman utama.
+
+        Bersifat OPSIONAL & best-effort, konsisten dengan prinsip Playback
+        pada modul ini: kegagalan di tahap ini (file tidak ditemukan,
+        ffmpeg tidak tersedia, konversi gagal, playback gagal) TIDAK BOLEH
+        menggagalkan item — hanya di-log sebagai warning, lalu pengumuman
+        utama tetap diputar.
+        """
+        if self._playback_manager is None:
+            return
+        if self._asset_resolver is None:
+            logger.warning(
+                "Chime untuk item id=%s dilewati: pipeline tidak memiliki AudioAssetResolver.",
+                item.id,
+            )
+            return
+
+        try:
+            chime_path, _cache_hit = await self._asset_resolver.resolve(item.chime_file)
+        except Exception:  # noqa: BLE001 - chime opsional: kegagalan resolve tidak boleh menggagalkan pengumuman
+            logger.exception(
+                "Chime untuk item id=%s gagal di-resolve (%s); pengumuman tetap diputar tanpa chime.",
+                item.id,
+                item.chime_file,
+            )
+            return
+
+        await self._play_audio_file(item, chime_path, label="chime")
 
     async def _play_and_wait(self, item: QueueItem, audio_file_path: str) -> None:
         """Tahap 3: Playback. Best-effort — lihat rationale pada docstring modul."""
@@ -152,10 +195,19 @@ class AnnouncementPipelineProcessor:
             )
             return
 
-        play_file_path = audio_file_path
+        await self._play_audio_file(item, audio_file_path, label="pengumuman")
+
+    async def _play_audio_file(self, item: QueueItem, file_path: str, *, label: str) -> None:
+        """Memutar SATU file audio lalu menunggu tuntas, dengan volume_gain zone diterapkan.
+
+        Dipakai bersama oleh pengumuman utama (``_play_and_wait``) dan chime
+        (``_play_chime``) — `label` hanya untuk pesan log ('chime' vs
+        'pengumuman'). Best-effort: kegagalan playback tidak menggagalkan item.
+        """
+        play_file_path = file_path
         scaled_path: Path | None = None
         if self._volume_gain != 1.0:
-            scaled_path = await asyncio.to_thread(self._write_gain_applied_copy, item.id, audio_file_path)
+            scaled_path = await asyncio.to_thread(self._write_gain_applied_copy, item.id, file_path)
             if scaled_path is not None:
                 play_file_path = str(scaled_path)
 
@@ -164,16 +216,18 @@ class AnnouncementPipelineProcessor:
             await self._playback_manager.wait_until_finished()
         except AppError as exc:
             logger.warning(
-                "Playback gagal untuk item id=%s (%s): %s. Item tetap ditandai selesai "
+                "Playback %s gagal untuk item id=%s (%s): %s. Item tetap ditandai selesai "
                 "karena sintesis TTS berhasil.",
+                label,
                 item.id,
                 exc.error_code,
                 exc.message,
             )
         except Exception:  # noqa: BLE001 - kegagalan playback tidak boleh membatalkan item yang TTS-nya sukses
             logger.exception(
-                "Playback gagal tak terduga untuk item id=%s. Item tetap ditandai selesai "
+                "Playback %s gagal tak terduga untuk item id=%s. Item tetap ditandai selesai "
                 "karena sintesis TTS berhasil.",
+                label,
                 item.id,
             )
         finally:

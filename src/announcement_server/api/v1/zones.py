@@ -209,6 +209,7 @@ async def speak_to_zone(name: str, payload: SpeakRequest, zone_manager: ZoneMana
         volume=payload.volume,
         announcement_type=payload.type,
         source_file=payload.file,
+        chime_file=payload.chime,
     )
     pending_items = await queue_manager.list_items(statuses={QueueItemStatus.PENDING})
     position = queue_manager.position_of(item.id, pending_items)

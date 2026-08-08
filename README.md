@@ -112,6 +112,75 @@ export PYTHONPATH=$(pwd)/src
 uvicorn announcement_server.main:app --reload
 ```
 
+## Uji Coba API dengan Postman (Panduan Pemula)
+
+Bagian ini memandu Anda menguji seluruh fitur server **tanpa menulis kode apa pun** — cukup
+menggunakan [Postman](https://www.postman.com/downloads/) (aplikasi gratis untuk mengirim
+request HTTP). Sangat disarankan untuk pemula: semua contoh request sudah disiapkan.
+
+### Langkah 1 — Jalankan server
+
+Buka folder project, lalu klik dua kali `run.bat` (atau jalankan perintah berikut di terminal):
+
+```bat
+run.bat
+```
+
+Tunggu sampai muncul tulisan seperti `Uvicorn running on http://0.0.0.0:8000`. **Server
+harus tetap terbuka** selama pengujian.
+
+### Langkah 2 — Siapkan Postman
+
+1. Unduh & pasang Postman dari https://www.postman.com/downloads/ (gratis, tidak perlu login).
+2. Buka Postman, klik **Import** → pilih file `tools/postman/AnnouncementServer.postman_collection.json`.
+3. Setelah ter-import, di panel kiri muncul koleksi **"Announcement Server"** berisi 13 request
+   yang sudah terisi lengkap (URL, header, body JSON) — Anda tinggal klik **Send**.
+
+> Koleksi ini memakai variabel `baseUrl` (default `http://localhost:8000`). Jika server
+> berjalan di port lain, klik ikon mata (*eye*) di kanan atas Postman → ubah variabel
+> `baseUrl` → **Save**.
+
+### Langkah 3 — Uji alur lengkap (urut dari atas ke bawah)
+
+| # | Request | Fungsi | Hasil yang diharapkan |
+|---|---------|--------|-----------------------|
+| 1 | Cek Kesehatan Server | Memastikan server hidup | `200` dengan `status: "ok"` |
+| 2 | Lihat Voice Tersedia | Melihat daftar suara yang terpasang | `200` + daftar voice (catat satu `id`) |
+| 3 | Kirim Pengumuman Teks | Mengirim teks ke antrean | `201` (berhasil masuk antrean) |
+| 4 | Lihat Antrean Aktif | Melihat antrean yang belum diproses | `200` + daftar item |
+| 5 | Lihat Riwayat | Melihat hasil pemrosesan | `200` — ganti `status` jadi `completed` / `failed` |
+| 6 | Putar File Audio | Memutar file bell/alarm dari folder `sounds/` | `201` |
+| 7 | Daftar Device | Melihat speaker/TOA yang terdeteksi | `200` + daftar device |
+| 8 | Pilih Device | Memilih speaker tujuan | `200` + status playback |
+| 9–10 | Zone | Melihat & mengirim pengumuman ke zone tertentu | `200` / `201` |
+| 11–13 | Jadwal | Membuat, melihat, dan menguji jadwal otomatis | `200` / `201` |
+
+### Cara membaca response
+
+- **`201`** pada `POST /speak` = pengumuman **berhasil masuk antrean**. Pemrosesan
+  (teks → suara → diputar) terjadi **di background** — perlu beberapa detik.
+- Cek hasilnya di request **#5 (Lihat Riwayat)**:
+  - `status: "completed"` → suara sudah jadi (dan diputar jika audio tersedia).
+  - `status: "failed"` → baca field `error_message` untuk penyebabnya.
+- **`4xx`/`5xx`** = ada kesalahan request/server. Baca pesan error pada response; umumnya
+  sudah menjelaskan penyebabnya dalam bahasa Indonesia.
+
+### Troubleshooting cepat (untuk pemula)
+
+| Gejala | Kemungkinan penyebab | Solusi |
+|--------|----------------------|--------|
+| `Could not get response` / koneksi ditolak | Server belum berjalan | Jalankan `run.bat` dan tunggu `Uvicorn running...` |
+| Item berstatus `failed`: "Voice '...' tidak ditemukan" | Voice yang dipilih tidak terpasang | Cek request **#2**, salin `id` voice yang benar ke field `voice` |
+| Item berstatus `failed`: "Piper binary tidak ditemukan" | Piper belum diunduh | Ikuti [Setup Piper (TTS Engine)](#setup-piper-tts-engine) |
+| Item `audio` gagal: "ffmpeg tidak ditemukan" | File bukan `.wav` tapi ffmpeg belum ada | Pakai file `.wav`, atau ikuti [Setup ffmpeg](#setup-ffmpeg-opsional-announcement-engine) |
+| Tidak ada suara keluar padahal status `completed` | Device belum dipilih | Jalankan request **#7** & **#8** |
+
+> **Tips voice default:** jika request **tidak** mengirim field `voice`, server memakai
+> `tts.default_voice` dari `config/config.yaml` — pastikan nama voice tersebut benar-benar
+> ada di folder `engines/piper/models/`. Jika ternyata tidak tersedia, server otomatis
+> memakai voice pertama yang ada (tercatat di log sebagai peringatan), jadi pengumuman
+> tetap berbunyi meski default-nya salah.
+
 ## Dokumentasi API
 
 Setelah server berjalan:
@@ -166,6 +235,7 @@ Contoh `type="audio"` (memutar file statis — bell/alarm/jingle/MP3/WAV apa pun
 - `speed`: 0.5–2.0 (1.0 = normal). Dipetakan ke parameter native Piper `--length_scale`.
 - `pitch`: 0.5–2.0 (1.0 = normal). **Catatan:** memakai teknik resampling sederhana yang turut memengaruhi tempo/durasi audio (lihat docstring `AudioProcessor.apply_pitch` untuk detail keterbatasan).
 - `volume`: 0.0–2.0 (1.0 = normal). Berlaku untuk `type="tts"` maupun `type="audio"` (diterapkan ke audio saat sintesis TTS; untuk file statis, konversi ffmpeg TIDAK mengubah volume file asli — gunakan volume per-zone untuk itu).
+- `chime`: path file audio chime (relatif terhadap `announcement.sounds_dir`), mis. `"chime.wav"`. **Opsional** — jika diisi, chime (mis. "ding-dong") diputar SEKALI **sebelum** pengumuman utama, berlaku untuk `type="tts"` MAUPUN `type="audio"`. Kosongkan (`null`, default) untuk tanpa chime. Pemutaran chime bersifat *best-effort*: jika file chime tidak ditemukan / tidak bisa di-resolve / gagal diputar, pengumuman utama **tetap** diputar tanpa chime (tercatat di log) — chime tidak pernah menggagalkan item.
 
 Response (`201 Created`) — termasuk field `type`/`file`:
 
@@ -184,6 +254,7 @@ Response (`201 Created`) — termasuk field `type`/`file`:
  "speed": 1.0,
  "pitch": 1.0,
  "volume": 1.0,
+ "chime": null,
  "audio_file_path": null,
  "cache_hit": null,
  "position": 1
@@ -387,9 +458,11 @@ Queue → Cache → Generate → Playback → Delay → Queue Berikutnya
 1. **Queue** — item PENDING di-dequeue.
 2. **Cache / Generate** — teks disintesis jadi audio lewat `TTSService`
 : cache hit langsung dipakai, cache miss memanggil engine TTS yang dipilih.
-3. **Playback** — file WAV hasil sintesis diputar ke output device aktif
- worker menunggu sampai audio **benar-benar selesai
- terdengar** sebelum lanjut.
+3. **Playback** — file WAV hasil sintesis diputar ke output device aktif;
+  worker menunggu sampai audio **benar-benar selesai
+  terdengar** sebelum lanjut. Jika item mengirim field `chime` (opsional),
+  chime diputar lebih dulu sebelum pengumuman utama (best-effort — lihat
+  deskripsi field `chime` pada `POST /speak` di atas).
 4. **Delay** — jeda `playback.post_playback_delay_seconds` (default `0.5`
  detik) di `config/config.yaml`, agar antar-pengumuman TOA tidak
  bertabrakan/terlalu rapat. Set `0` untuk menonaktifkan jeda.
@@ -654,7 +727,7 @@ Bagian `tts:` mengatur TTS Engine (**V2**: kini mendukung multi-engine):
 | `tts.styletts2_config_path` | `engines/styletts2/config.yml` | Path file config model StyleTTS2, dipasangkan dengan checkpoint di atas |
 | `tts.styletts2_voices_dir` | `engines/styletts2/voices` | Direktori katalog voice StyleTTS2 (file `.wav` referensi, 1 file = 1 voice) |
 | `tts.styletts2_diffusion_steps` | `5` | Jumlah langkah diffusion sampling StyleTTS2 — trade-off kualitas vs latensi |
-| `tts.default_voice` | `en_US-lessac-medium` | Voice fallback jika request tidak mengirim `voice` — namespace Piper; kirim `voice` eksplisit saat memilih `engine` lain |
+| `tts.default_voice` | `en_US-lessac-medium` | Voice fallback jika request tidak mengirim `voice` — namespace Piper; kirim `voice` eksplisit saat memilih `engine` lain. Harus sesuai voice yang benar-benar ada di `engines/piper/models/` (lihat contoh `config/config.yaml`); jika tidak tersedia, server memakai voice pertama yang tersedia + peringatan di log |
 | `tts.cache_dir` | `cache/audio` | Cache audio hasil sintesis (SHA256 dari `engine+voice+text+speed+pitch+volume`) |
 
 Bagian `announcement:` mengatur Announcement Engine:
@@ -780,6 +853,8 @@ announcement-server/
 ├── cache/announcement_audio/ # (dibuat otomatis) cache hasil konversi ffmpeg (file non-WAV -> WAV) untuk item type=audio
 ├── scripts/
 │ └── manual_test_playback.py # Alat bantu verifikasi playback manual (bukan bagian API)
+├── tools/
+│ └── postman/ # Koleksi Postman siap-import untuk uji coba API (lihat "Uji Coba API dengan Postman")
 ├── logs/
 ├── tests/
 ├── requirements.txt
@@ -801,6 +876,6 @@ V2 dirancang **100% backward-compatible** dengan V1 — tidak ada breaking chang
 
 ## Known Limitations & Future Development
 
-**Keterbatasan yang diketahui** (bukan bug — keputusan desain yang terdokumentasi): `tts.default_voice` belum sadar-engine (fallback voice hanya cocok untuk Piper — selalu kirim `voice` eksplisit saat memilih engine lain); `EngineInfo.available` mencerminkan status inisialisasi saat startup, bukan health-check real-time; `QueueItemResponse.audio_file_path` dan `CacheStatsResponse.directory` mengekspos path server-lokal; hook `initialize()`/`shutdown()` pada `TTSEngine` belum di-wire ke siklus startup/shutdown `TTSEngineManager`/`main.py` (StyleTTS2 saat ini sepenuhnya mengandalkan lazy-loading via `synthesize()` pertama, bukan `initialize()` eksplisit).
+**Keterbatasan yang diketahui** (bukan bug — keputusan desain yang terdokumentasi): `tts.default_voice` belum sadar-engine (fallback voice hanya cocok untuk Piper — selalu kirim `voice` eksplisit saat memilih engine lain; jika default tidak tersedia di engine yang dipakai, server memakai voice pertama yang tersedia dengan peringatan di log, lihat [Uji Coba API dengan Postman](#uji-coba-api-dengan-postman-panduan-pemula)); `EngineInfo.available` mencerminkan status inisialisasi saat startup, bukan health-check real-time; `QueueItemResponse.audio_file_path` dan `CacheStatsResponse.directory` mengekspos path server-lokal; hook `initialize()`/`shutdown()` pada `TTSEngine` belum di-wire ke siklus startup/shutdown `TTSEngineManager`/`main.py` (StyleTTS2 saat ini sepenuhnya mengandalkan lazy-loading via `synthesize()` pertama, bukan `initialize()` eksplisit).
 
 **Pengembangan berikutnya** (di luar cakupan rilis ini): HTML Client, Browser/Desktop Player, Remote Audio Endpoint, Emergency Broadcast, MQTT/gRPC, autentikasi & otorisasi.

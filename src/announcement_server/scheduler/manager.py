@@ -325,6 +325,7 @@ class SchedulerManager:
             volume=spec.volume,
             announcement_type=spec.type,
             source_file=spec.file,
+            chime_file=spec.chime,
         )
         logger.info("Jadwal terpicu: id=%s name=%r -> item id=%s (zone=%s)", entry.id, entry.name, item.id, entry.zone)
         return item

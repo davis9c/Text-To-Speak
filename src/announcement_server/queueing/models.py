@@ -120,3 +120,17 @@ class QueueItem(BaseModel):
         description="Path file audio statis (relatif terhadap announcement.sounds_dir) untuk "
         "announcement_type='audio'. null untuk announcement_type='tts'.",
     )
+
+    # --- Field Chime ---
+    # Efek chime (mis. "ding-dong") yang diputar SEKALI SEBELUM pengumuman
+    # utama (berlaku untuk `announcement_type='tts'` MAUPUN `'audio'`).
+    # Bersifat OPSIONAL: `None` (default) = tanpa chime. Path SELALU relatif
+    # terhadap `announcement.sounds_dir` (sama seperti `source_file`), dan
+    # resolusi/pemutaran chime bersifat best-effort — kegagalannya TIDAK
+    # boleh menggagalkan pengumuman itu sendiri (lihat
+    # `queueing/pipeline_processor.py`).
+    chime_file: str | None = Field(
+        default=None,
+        description="Path file audio chime (relatif terhadap announcement.sounds_dir), mis. 'chime.wav'. "
+        "null = tanpa chime. Jika diisi, chime diputar sebelum pengumuman utama.",
+    )

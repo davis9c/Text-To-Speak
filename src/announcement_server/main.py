@@ -278,6 +278,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 speed=announcement_def.speed,
                 pitch=announcement_def.pitch,
                 volume=announcement_def.volume,
+                chime=announcement_def.chime,
             ),
         )
     scheduler_manager.start()

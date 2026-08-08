@@ -135,6 +135,7 @@ class QueueManager:
         volume: float = 1.0,
         announcement_type: AnnouncementType = AnnouncementType.TTS,
         source_file: str | None = None,
+        chime_file: str | None = None,
     ) -> QueueItem:
         """Menambahkan item baru ke antrean. Melempar QueueFullError jika penuh.
 
@@ -148,6 +149,10 @@ class QueueManager:
         sama: keyword-only dengan default ``AnnouncementType.TTS``/``None``,
         sehingga seluruh pemanggilan lama (Phase 2-6, selalu TTS) tetap
         berperilaku identik tanpa perubahan.
+
+        ``chime_file`` (opsional) mengikuti pola yang sama persis: keyword-only
+        dengan default ``None`` (= tanpa chime) — pemanggilan lama yang tidak
+        pernah tahu soal chime tetap berperilaku identik tanpa perubahan.
 
         ``engine`` (V2 Phase 2) mengikuti pola yang sama persis: keyword-only,
         default ``None`` (= pakai engine default server, lihat
@@ -177,6 +182,7 @@ class QueueManager:
                 volume=volume,
                 announcement_type=announcement_type,
                 source_file=source_file,
+                chime_file=chime_file,
             )
             self._registry[item.id] = item
 

@@ -51,6 +51,7 @@ class AnnouncementSpec(BaseModel):
     speed: float = 1.0
     pitch: float = 1.0
     volume: float = 1.0
+    chime: str | None = None
 
 
 class ScheduleEntry(BaseModel):

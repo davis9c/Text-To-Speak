@@ -207,6 +207,7 @@ class ZoneManager:
                 ),
                 volume_gain=volume,
                 scaled_audio_dir=f"cache/zone_audio/{name}",
+                asset_resolver=self._asset_resolver,
             )
             queue_worker = QueueWorker(queue_manager, item_processor=pipeline)
             if enabled:

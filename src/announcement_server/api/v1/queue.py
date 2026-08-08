@@ -63,6 +63,7 @@ async def speak(payload: SpeakRequest, manager: QueueManagerDep, settings: Setti
         volume=payload.volume,
         announcement_type=payload.type,
         source_file=payload.file,
+        chime_file=payload.chime,
     )
     pending_items = await manager.list_items(statuses={QueueItemStatus.PENDING})
     position = manager.position_of(item.id, pending_items)

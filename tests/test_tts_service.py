@@ -39,9 +39,11 @@ class FakeEngine(TTSEngine):
 
     def __init__(self, config: TTSConfig) -> None:
         self.call_count = 0
+        self.last_voice: str | None = None
 
     async def synthesize(self, *, text: str, voice: str, speed: float) -> bytes:
         self.call_count += 1
+        self.last_voice = voice
         return _make_tone_wav()
 
 
@@ -155,6 +157,89 @@ async def test_cache_key_distinguishes_between_engines(tmp_path: Path) -> None:
         assert result_a.audio_file_path != result_b.audio_file_path
     finally:
         del EngineFactory._registry["second_fake_test_engine"]
+
+
+# --- Default voice fallback (safety-net) ------------------------------------
+
+
+class FakeEngineWithVoices(TTSEngine):
+    """Engine palsu dengan voice discovery (untuk verifikasi fallback default voice)."""
+
+    def __init__(self, config: TTSConfig) -> None:
+        self.call_count = 0
+        self.last_voice: str | None = None
+
+    async def synthesize(self, *, text: str, voice: str, speed: float) -> bytes:
+        self.call_count += 1
+        self.last_voice = voice
+        return _make_tone_wav()
+
+    async def list_voices(self):
+        from announcement_server.tts.voice_profile import VoiceProfile
+
+        return [
+            VoiceProfile(id="v1", engine="fake_voices_engine", name="v1", source="x", available=True),
+            VoiceProfile(id="v2", engine="fake_voices_engine", name="v2", source="x", available=True),
+        ]
+
+
+@pytest.fixture(autouse=True)
+def register_fake_voices_engine():
+    EngineFactory.register("fake_voices_engine", FakeEngineWithVoices)
+    yield
+    del EngineFactory._registry["fake_voices_engine"]
+
+
+async def test_synthesize_default_voice_available_uses_it_as_is(tmp_path: Path) -> None:
+    """Jika `tts.default_voice` benar-benar tersedia di engine, TIDAK ada fallback."""
+    config = TTSConfig(
+        engine="fake_voices_engine",
+        default_voice="v1",
+        cache_dir=str(tmp_path / "cache"),
+    )
+    service = TTSService(config)
+    fake: FakeEngineWithVoices = service._engine_manager.get()  # type: ignore[assignment]
+
+    result = await service.synthesize(text="Halo", voice="v1", speed=1.0, pitch=1.0, volume=1.0)
+
+    assert result.cache_hit is False
+    assert fake.last_voice == "v1"
+
+
+async def test_synthesize_default_voice_missing_falls_back_to_first_available(tmp_path: Path) -> None:
+    """Safety-net: default voice tidak tersedia -> fallback ke voice pertama yang ada,
+    supaya request tanpa `voice` tetap berhasil (bukan langsung failed)."""
+    config = TTSConfig(
+        engine="fake_voices_engine",
+        default_voice="en_US-tidak-ada",
+        cache_dir=str(tmp_path / "cache"),
+    )
+    service = TTSService(config)
+    fake: FakeEngineWithVoices = service._engine_manager.get()  # type: ignore[assignment]
+
+    result = await service.synthesize(text="Halo", voice="en_US-tidak-ada", speed=1.0, pitch=1.0, volume=1.0)
+
+    assert result.cache_hit is False
+    assert fake.call_count == 1
+    assert fake.last_voice == "v1"  # fallback ke voice pertama yang tersedia
+
+
+async def test_synthesize_explicit_voice_missing_does_not_fall_back(tmp_path: Path) -> None:
+    """Voice EKSPLIT yang tidak tersedia TIDAK boleh di-fallback (semantik terdokumentasi:
+    request eksplisit dengan voice salah tetap memakai voice tsb — validasi/discovery tetap
+    tanggung jawab engine)."""
+    config = TTSConfig(
+        engine="fake_voices_engine",
+        default_voice="v1",
+        cache_dir=str(tmp_path / "cache"),
+    )
+    service = TTSService(config)
+    fake: FakeEngineWithVoices = service._engine_manager.get()  # type: ignore[assignment]
+
+    result = await service.synthesize(text="Halo", voice="eksplisit-salah", speed=1.0, pitch=1.0, volume=1.0)
+
+    assert result.cache_hit is False
+    assert fake.last_voice == "eksplisit-salah"  # voice eksplisit dikirim apa adanya
 
 
 # --- Phase 13 — Multi-Engine Validation: urutan Queue lintas 3 engine sekaligus --

@@ -41,7 +41,7 @@ tts:
   # styletts2_config_path: "engines/styletts2/config.yml"     # (Phase 12) Config model StyleTTS2, dipasangkan dengan checkpoint di atas
   # styletts2_voices_dir: "engines/styletts2/voices"          # (Phase 12) Direktori katalog voice (file .wav referensi, 1 file = 1 voice)
   # styletts2_diffusion_steps: 5                               # (Phase 12) Trade-off kualitas vs latensi sintesis StyleTTS2
-  default_voice: "en_US-lessac-medium"          # Voice default jika request tidak menyebutkan voice (namespace Piper)
+  default_voice: "id_ID-news_tts-medium"      # Voice default jika request tidak menyebutkan voice (namespace Piper) — harus sesuai voice yang ADA di engines/piper/models/
   generation_timeout_seconds: 30.0              # Timeout sintesis per item
   cache_dir: "cache/audio"                      # Direktori cache audio (key: SHA256)
   max_retries: 2                                # Percobaan ulang (Phase 14) jika sintesis Piper gagal transien

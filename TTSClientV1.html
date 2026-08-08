@@ -1,0 +1,2920 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TTS Remote Client</title>
+    <style>
+        :root {
+            --bg: #0f1115;
+            --panel: #171a21;
+            --panel-border: #262b36;
+            --text: #e6e8ec;
+            --text-dim: #8b93a3;
+            --accent: #4f8cff;
+            --online: #33c46b;
+            --offline: #ff5c5c;
+            --unknown: #8b93a3;
+            --warn: #f2b84b;
+            --input-bg: #10131a;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 20px;
+            background: var(--panel);
+            border-bottom: 1px solid var(--panel-border);
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        header h1 {
+            font-size: 16px;
+            margin: 0;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+        }
+
+        header h1 span {
+            color: var(--text-dim);
+            font-weight: 400;
+        }
+
+        .banner-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 24px auto;
+            padding: 0 16px;
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 10px;
+            padding: 18px 20px;
+            margin-bottom: 18px;
+        }
+
+        .panel h2 {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--text-dim);
+            margin: 0 0 14px 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .field label {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        input[type=text],
+        input[type=number],
+        select {
+            background: var(--input-bg);
+            border: 1px solid var(--panel-border);
+            color: var(--text);
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            min-width: 140px;
+        }
+
+        input[type=number] {
+            min-width: 90px;
+        }
+
+        select {
+            min-width: 220px;
+        }
+
+        button {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            padding: 9px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        button:hover {
+            filter: brightness(1.1);
+        }
+
+        button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        button.secondary {
+            background: transparent;
+            border: 1px solid var(--panel-border);
+            color: var(--text);
+        }
+
+        button.danger {
+            background: var(--offline);
+        }
+
+        .server-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .server-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--input-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 10px 14px;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .server-item.active {
+            border-color: var(--accent);
+        }
+
+        .server-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .server-info .label {
+            font-weight: 600;
+            font-size: 13.5px;
+        }
+
+        .server-info .addr {
+            color: var(--text-dim);
+            font-size: 12px;
+        }
+
+        .dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+
+        .dot.online {
+            background: var(--online);
+            box-shadow: 0 0 6px var(--online);
+        }
+
+        .dot.offline {
+            background: var(--offline);
+        }
+
+        .dot.unknown {
+            background: var(--unknown);
+        }
+
+        .dot.checking,
+        .dot.connecting,
+        .dot.reconnecting {
+            background: var(--warn);
+            animation: pulse 1s infinite;
+        }
+
+        .dot.connected {
+            background: var(--online);
+            box-shadow: 0 0 6px var(--online);
+        }
+
+        .dot.disconnected {
+            background: var(--unknown);
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.3;
+            }
+        }
+
+        .status-text {
+            font-size: 12px;
+            color: var(--text-dim);
+        }
+
+        .status-text.online,
+        .status-text.connected {
+            color: var(--online);
+        }
+
+        .status-text.offline {
+            color: var(--offline);
+        }
+
+        .status-text.reconnecting,
+        .status-text.connecting,
+        .status-text.checking {
+            color: var(--warn);
+        }
+
+        .active-banner {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            border-radius: 8px;
+            background: var(--input-bg);
+            border: 1px solid var(--panel-border);
+            font-size: 12.5px;
+        }
+
+        .active-banner .name {
+            font-weight: 600;
+        }
+
+        .active-banner .sep {
+            color: var(--panel-border);
+        }
+
+        .active-banner .tag {
+            color: var(--text-dim);
+            font-size: 10.5px;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+        }
+
+        .small-btn {
+            padding: 5px 9px;
+            font-size: 11.5px;
+        }
+
+        .footer-note {
+            color: var(--text-dim);
+            font-size: 11.5px;
+            text-align: center;
+            padding: 20px 0 30px;
+        }
+
+        .empty {
+            color: var(--text-dim);
+            font-size: 12.5px;
+            padding: 8px 0;
+        }
+
+        table.zone-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12.5px;
+        }
+
+        table.zone-table th,
+        table.zone-table td {
+            text-align: left;
+            padding: 7px 8px;
+            border-bottom: 1px solid var(--panel-border);
+        }
+
+        table.zone-table th {
+            color: var(--text-dim);
+            font-weight: 500;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            background: var(--panel-border);
+            color: var(--text);
+        }
+
+        .badge.playing {
+            background: rgba(51, 196, 107, 0.18);
+            color: var(--online);
+        }
+
+        .badge.paused {
+            background: rgba(242, 184, 75, 0.18);
+            color: var(--warn);
+        }
+
+        .badge.idle {
+            background: var(--panel-border);
+            color: var(--text-dim);
+        }
+
+        .badge.enabled-true {
+            background: rgba(51, 196, 107, 0.15);
+            color: var(--online);
+        }
+
+        .badge.enabled-false {
+            background: rgba(255, 92, 92, 0.15);
+            color: var(--offline);
+        }
+
+        .event-log {
+            max-height: 260px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            font-size: 12px;
+        }
+
+        .event-row {
+            display: flex;
+            gap: 8px;
+            padding: 5px 8px;
+            border-radius: 5px;
+            background: var(--input-bg);
+            border: 1px solid var(--panel-border);
+        }
+
+        .event-row .ev-time {
+            color: var(--text-dim);
+            flex-shrink: 0;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .event-row .ev-type {
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .event-row .ev-zone {
+            color: var(--accent);
+            flex-shrink: 0;
+        }
+
+        .event-row .ev-detail {
+            color: var(--text-dim);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .ev-type.snapshot {
+            color: var(--text-dim);
+        }
+
+        .ev-type.queue_changed {
+            color: var(--accent);
+        }
+
+        .ev-type.speaking {
+            color: var(--online);
+        }
+
+        .ev-type.idle {
+            color: var(--text-dim);
+        }
+
+        .ev-type.pause {
+            color: var(--warn);
+        }
+
+        .ev-type.resume {
+            color: var(--online);
+        }
+
+        .ev-type.finished {
+            color: var(--online);
+        }
+
+        .tabs-nav {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+            border-bottom: 1px solid var(--panel-border);
+            padding-bottom: 10px;
+        }
+
+        .tab-btn {
+            background: transparent;
+            color: var(--text-dim);
+            border: 1px solid transparent;
+            padding: 7px 14px;
+            border-radius: 6px;
+            font-size: 12.5px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .tab-btn:hover {
+            color: var(--text);
+            background: var(--panel-border);
+        }
+
+        .tab-btn.active {
+            color: #fff;
+            background: var(--accent);
+        }
+
+        .tab-panel {
+            display: none;
+        }
+
+        .tab-panel.active {
+            display: block;
+        }
+
+        /* Wrapper tabel selalu boleh scroll horizontal sendiri (bukan seluruh
+     halaman) jika kontennya lebih lebar dari layar — berlaku di semua
+     ukuran layar, tidak mengubah tampilan desktop yang sudah pas. */
+        #zoneWrap,
+        #queueWrap,
+        #historyWrap,
+        #schedulerWrap {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* =====================================================================
+     RESPONSIVE — Tablet & layar sedang
+     ===================================================================== */
+        @media (max-width: 900px) {
+            .container {
+                padding: 0 12px;
+            }
+
+            select {
+                min-width: 180px;
+            }
+        }
+
+        /* =====================================================================
+     RESPONSIVE — Smartphone (portrait & landscape) dan tablet kecil
+     ===================================================================== */
+        @media (max-width: 640px) {
+            body {
+                -webkit-text-size-adjust: 100%;
+            }
+
+            header {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 8px;
+                padding: 10px 12px;
+            }
+
+            header h1 {
+                font-size: 14px;
+                text-align: center;
+            }
+
+            .banner-group {
+                justify-content: center;
+                gap: 8px;
+            }
+
+            .active-banner {
+                flex: 1 1 auto;
+                justify-content: center;
+                font-size: 11.5px;
+                padding: 7px 10px;
+                min-width: 0;
+            }
+
+            .active-banner .name {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                max-width: 46vw;
+            }
+
+            .container {
+                margin: 14px auto;
+                padding: 0 10px;
+            }
+
+            .panel {
+                padding: 14px;
+                margin-bottom: 14px;
+                border-radius: 8px;
+            }
+
+            .panel h2 {
+                font-size: 12px;
+                flex-wrap: wrap;
+                row-gap: 8px;
+            }
+
+            /* Tab bar mobile: scroll horizontal ringkas alih-alih wrap penuh,
+       supaya tetap 1 baris dan hemat tinggi layar. */
+            .tabs-nav {
+                flex-wrap: nowrap;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                padding-bottom: 10px;
+                margin-bottom: 14px;
+                gap: 6px;
+            }
+
+            .tab-btn {
+                flex-shrink: 0;
+                padding: 9px 14px;
+                font-size: 12px;
+            }
+
+            /* Panel ditumpuk vertikal penuh: setiap field mengambil lebar penuh
+       agar tidak ada elemen yang terpotong/overflow horizontal. */
+            .row {
+                gap: 10px;
+            }
+
+            .field {
+                flex: 1 1 100% !important;
+                min-width: 0 !important;
+                width: 100%;
+            }
+
+            input[type=text],
+            input[type=number],
+            select {
+                width: 100%;
+                min-width: 0;
+                font-size: 16px;
+                /* cegah auto-zoom Safari/iOS saat fokus input */
+                padding: 10px 12px;
+            }
+
+            /* Tombol: target sentuh nyaman (~44px) dan lebar penuh saat berdiri sendiri. */
+            button {
+                min-height: 42px;
+                padding: 10px 16px;
+                font-size: 13.5px;
+            }
+
+            .row>button {
+                flex: 1 1 auto;
+            }
+
+            .small-btn {
+                min-height: 34px;
+                padding: 7px 12px;
+                flex: 0 0 auto !important;
+            }
+
+            /* Server list: tumpuk vertikal agar nama/alamat/aksi tidak berdesakan. */
+            .server-item {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 8px;
+            }
+
+            .server-item>div:last-child {
+                display: flex;
+                gap: 8px;
+            }
+
+            .server-item>div:last-child button {
+                flex: 1 1 auto;
+            }
+
+            /* Tabel data (Zone/Queue/History/Scheduler): tetap punya lebar minimum
+       agar kolom tidak gepeng, wrapper-nya yang scroll horizontal (bukan
+       seluruh halaman) — lihat aturan #zoneWrap dkk di atas. */
+            table.zone-table {
+                font-size: 11.5px;
+                min-width: 620px;
+            }
+
+            table.zone-table th,
+            table.zone-table td {
+                padding: 6px 6px;
+            }
+
+            /* Log: baris event dibiarkan wrap alih-alih terpotong (ellipsis)
+       supaya detail tetap terbaca tanpa scroll horizontal. */
+            .event-row {
+                flex-wrap: wrap;
+                row-gap: 2px;
+            }
+
+            .event-row .ev-detail {
+                white-space: normal;
+                overflow: visible;
+                text-overflow: clip;
+                flex-basis: 100%;
+            }
+
+            .event-log {
+                max-height: 300px;
+            }
+
+            /* Checkbox + label sejajar (Auto refresh/Auto scroll dll) tetap ringkas. */
+            .field[style*="row"] {
+                width: auto;
+            }
+        }
+
+        /* Smartphone kecil (mis. lebar 360px ke bawah) */
+        @media (max-width: 380px) {
+            header h1 span {
+                display: block;
+                font-size: 10.5px;
+            }
+
+            .active-banner .name {
+                max-width: 38vw;
+            }
+
+            .panel {
+                padding: 12px;
+            }
+        }
+
+        /* Landscape phone (layar pendek): hemat tinggi vertikal */
+        @media (max-height: 480px) and (orientation: landscape) {
+            header {
+                flex-direction: row;
+                padding: 8px 14px;
+            }
+
+            header h1 {
+                font-size: 13px;
+            }
+
+            .panel {
+                padding: 10px 14px;
+                margin-bottom: 10px;
+            }
+
+            .tabs-nav {
+                margin-bottom: 10px;
+                padding-bottom: 6px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1>TTS Remote Client <span>· remote control / monitoring</span></h1>
+        <div class="banner-group">
+            <div class="active-banner" id="activeBanner">
+                <span class="tag">HTTP</span>
+                <span class="dot unknown" id="activeDot"></span>
+                <span class="name" id="activeName">Tidak ada server aktif</span>
+                <span class="sep">|</span>
+                <span class="status-text" id="activeStatusText">-</span>
+            </div>
+            <div class="active-banner" id="wsBanner">
+                <span class="tag">WS</span>
+                <span class="dot unknown" id="wsDot"></span>
+                <span class="status-text" id="wsStatusText">-</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <nav class="tabs-nav" id="tabsNav">
+            <button class="tab-btn active" data-tab="server">Server</button>
+            <button class="tab-btn" data-tab="tts">Zone &amp; TTS</button>
+            <button class="tab-btn" data-tab="playback">Playback &amp; Queue</button>
+            <button class="tab-btn" data-tab="history">History &amp; Metrics</button>
+            <button class="tab-btn" data-tab="scheduler">Scheduler</button>
+            <button class="tab-btn" data-tab="log">Log</button>
+        </nav>
+
+        <div class="tab-panel active" data-tab="server">
+            <div class="panel">
+                <h2>Server Aktif</h2>
+                <div class="row">
+                    <div class="field" style="flex:1;">
+                        <label for="serverSelect">Pilih Server</label>
+                        <select id="serverSelect"></select>
+                    </div>
+                    <button id="btnConnect">Connect</button>
+                    <button id="btnDisconnect" class="secondary">Disconnect</button>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Tambah Server</h2>
+                <div class="row">
+                    <div class="field">
+                        <label for="newLabel">Label</label>
+                        <input type="text" id="newLabel" placeholder="Server 2">
+                    </div>
+                    <div class="field">
+                        <label for="newHost">Host / IP</label>
+                        <input type="text" id="newHost" placeholder="192.168.1.10">
+                    </div>
+                    <div class="field">
+                        <label for="newPort">Port</label>
+                        <input type="number" id="newPort" placeholder="8000" value="8000">
+                    </div>
+                    <button id="btnAddServer">Tambah</button>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Daftar Server</h2>
+                <div class="server-list" id="serverList"></div>
+            </div>
+        </div>
+
+        <div class="tab-panel" data-tab="tts">
+            <div class="panel">
+                <h2>
+                    Zone (realtime)
+                    <button class="secondary small-btn" id="btnRefreshZones">Refresh</button>
+                </h2>
+                <div class="row" style="margin-bottom:14px;">
+                    <div class="field" style="flex:1;">
+                        <label for="activeZoneSelect">Zone Aktif (target TTS)</label>
+                        <select id="activeZoneSelect">
+                            <option value="">-</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="zoneDeviceSelect">Device untuk Zone ini</label>
+                        <select id="zoneDeviceSelect">
+                            <option value="">-</option>
+                        </select>
+                    </div>
+                    <button id="btnSetZoneDevice" class="secondary">Set Device</button>
+                </div>
+                <div id="zoneWrap">
+                    <div class="empty">Hubungkan ke server untuk melihat zone.</div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>TTS</h2>
+                <div class="row">
+                    <div class="field" style="flex:1; min-width:280px;">
+                        <label for="ttsText">Text</label>
+                        <input type="text" id="ttsText" placeholder="Nomor antrean A001, silakan menuju loket 3."
+                            maxlength="1000">
+                    </div>
+                </div>
+                <div class="row" style="margin-top:10px;">
+                    <div class="field">
+                        <label for="ttsVoice">Voice</label>
+                        <input type="text" id="ttsVoice" value="id_ID-news_tts-medium">
+                    </div>
+                    <div class="field">
+                        <label for="ttsZone">Zone tujuan</label>
+                        <select id="ttsZone">
+                            <option value="">(pakai Zone Aktif)</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="ttsPriority">Priority</label>
+                        <select id="ttsPriority">
+                            <option value="urgent">urgent</option>
+                            <option value="high">high</option>
+                            <option value="normal" selected>normal</option>
+                            <option value="low">low</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="ttsSpeed">Speed</label>
+                        <input type="number" id="ttsSpeed" value="1.0" min="0.5" max="2.0" step="0.1">
+                    </div>
+                    <div class="field">
+                        <label for="ttsPitch">Pitch</label>
+                        <input type="number" id="ttsPitch" value="1.0" min="0.5" max="2.0" step="0.1">
+                    </div>
+                    <div class="field">
+                        <label for="ttsVolume">Volume</label>
+                        <input type="number" id="ttsVolume" value="1.0" min="0.0" max="2.0" step="0.1">
+                    </div>
+                </div>
+                <div class="row" style="margin-top:14px;">
+                    <button id="btnSpeak">Send / Speak</button>
+                    <button id="btnClearTts" class="secondary">Clear</button>
+                </div>
+                <div class="status-text" id="ttsResult" style="margin-top:10px;"></div>
+            </div>
+        </div>
+
+        <div class="tab-panel" data-tab="playback">
+            <div class="panel">
+                <h2>Playback (global / zone "main")</h2>
+                <div class="status-text" style="margin-bottom:10px;">
+                    Endpoint <code>/pause</code>, <code>/resume</code>, <code>/stop</code>, <code>/device</code> pada
+                    backend
+                    bersifat global (tidak per-zone) — kontrol di bawah ini memengaruhi playback engine utama server,
+                    bukan zone yang dipilih di tab lain.
+                </div>
+                <div class="row">
+                    <div class="field">
+                        <label>State</label>
+                        <span class="badge" id="playbackStateBadge">-</span>
+                    </div>
+                    <div class="field">
+                        <label>Current File</label>
+                        <span class="status-text" id="playbackCurrentFile">-</span>
+                    </div>
+                    <div class="field">
+                        <label>Selected Device</label>
+                        <span class="status-text" id="playbackSelectedDevice">-</span>
+                    </div>
+                </div>
+                <div class="row" style="margin-top:12px;">
+                    <button id="btnPause" class="secondary">Pause</button>
+                    <button id="btnResume" class="secondary">Resume</button>
+                    <button id="btnStop" class="danger">Stop</button>
+                </div>
+                <div class="row" style="margin-top:14px;">
+                    <div class="field">
+                        <label for="globalDeviceSelect">Output Device (global)</label>
+                        <select id="globalDeviceSelect">
+                            <option value="">-</option>
+                        </select>
+                    </div>
+                    <button id="btnSetGlobalDevice" class="secondary">Select Device</button>
+                    <button id="btnRefreshDevices" class="secondary">Refresh Devices</button>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>
+                    Queue (zone aktif)
+                    <button class="secondary small-btn" id="btnRefreshQueue">Refresh</button>
+                </h2>
+                <div class="row" style="margin-bottom:12px;">
+                    <div class="field">
+                        <label for="queueStatusFilter">Status</label>
+                        <select id="queueStatusFilter">
+                            <option value="">Aktif (pending + processing)</option>
+                            <option value="pending">pending</option>
+                            <option value="processing">processing (speaking)</option>
+                            <option value="completed">completed</option>
+                            <option value="failed">failed</option>
+                            <option value="cancelled">cancelled</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="queueWrap">
+                    <div class="empty">Hubungkan ke server untuk melihat queue.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-panel" data-tab="history">
+            <div class="panel">
+                <h2>
+                    History
+                    <button class="secondary small-btn" id="btnRefreshHistory">Refresh</button>
+                </h2>
+                <div class="row" style="margin-bottom:12px;">
+                    <div class="field">
+                        <label for="historyZoneFilter">Zone</label>
+                        <select id="historyZoneFilter">
+                            <option value="">Semua zone</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="historyStatusFilter">Status</label>
+                        <select id="historyStatusFilter">
+                            <option value="">Semua status final</option>
+                            <option value="completed">completed</option>
+                            <option value="failed">failed</option>
+                            <option value="cancelled">cancelled</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="historyLimit">Limit</label>
+                        <input type="number" id="historyLimit" value="50" min="1" max="1000">
+                    </div>
+                    <div class="field" style="flex-direction:row; align-items:center; gap:6px; padding-bottom:8px;">
+                        <input type="checkbox" id="historyAutoRefresh" checked style="min-width:auto; width:auto;">
+                        <label for="historyAutoRefresh" style="font-size:11px;">Auto-refresh saat item selesai (event
+                            "finished")</label>
+                    </div>
+                </div>
+                <div id="historyWrap">
+                    <div class="empty">Hubungkan ke server untuk melihat history.</div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>
+                    Status &amp; Metrics
+                    <span style="display:flex; gap:10px; align-items:center;">
+                        <label
+                            style="font-size:11px; color:var(--text-dim); display:flex; align-items:center; gap:4px;">
+                            <input type="checkbox" id="autoRefreshMetrics" checked style="min-width:auto; width:auto;">
+                            Auto refresh (15s)
+                        </label>
+                        <button class="secondary small-btn" id="btnRefreshMetrics">Refresh</button>
+                    </span>
+                </h2>
+                <div id="statusWrap">
+                    <div class="empty">Hubungkan ke server untuk melihat status.</div>
+                </div>
+                <div id="metricsWrap" style="margin-top:14px;"></div>
+            </div>
+
+            <div class="panel">
+                <h2>Maintenance — Cache Cleanup</h2>
+                <div class="status-text" style="margin-bottom:10px;">
+                    Menghapus file cache TTS/Announcement yang lebih tua dari batas usia (hari). Kosongkan untuk memakai
+                    default dari config server (<code>tts.cache_max_age_days</code> /
+                    <code>announcement.cache_max_age_days</code>).
+                </div>
+                <div class="row">
+                    <div class="field">
+                        <label for="cleanupTtsMaxAge">TTS max age (hari)</label>
+                        <input type="number" id="cleanupTtsMaxAge" placeholder="default server" min="0" step="0.5">
+                    </div>
+                    <div class="field">
+                        <label for="cleanupAnnouncementMaxAge">Announcement max age (hari)</label>
+                        <input type="number" id="cleanupAnnouncementMaxAge" placeholder="default server" min="0"
+                            step="0.5">
+                    </div>
+                    <button id="btnCleanupCache" class="danger">Cleanup Cache</button>
+                </div>
+                <div class="status-text" id="cleanupResult" style="margin-top:10px;"></div>
+            </div>
+        </div>
+
+        <div class="tab-panel" data-tab="scheduler">
+            <div class="panel">
+                <h2>
+                    Buat Jadwal Baru
+                </h2>
+                <div class="row">
+                    <div class="field">
+                        <label for="schName">Nama</label>
+                        <input type="text" id="schName" placeholder="Bell Masuk" maxlength="100">
+                    </div>
+                    <div class="field">
+                        <label for="schZone">Zone</label>
+                        <select id="schZone">
+                            <option value="main">main</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="schRecurrence">Recurrence</label>
+                        <select id="schRecurrence">
+                            <option value="daily">daily</option>
+                            <option value="weekly">weekly</option>
+                            <option value="once">once</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="schTimeOfDay">Time of day</label>
+                        <input type="time" id="schTimeOfDay" value="07:00">
+                    </div>
+                </div>
+                <div class="row" id="schWeeklyRow" style="margin-top:10px; display:none;">
+                    <div class="field" style="flex:1;">
+                        <label>Hari (weekly) — 0=Senin .. 6=Minggu</label>
+                        <div class="row" style="gap:12px;">
+                            <label style="font-size:12px;"><input type="checkbox" class="schDow" value="0"
+                                    style="width:auto;"> Sen</label>
+                            <label style="font-size:12px;"><input type="checkbox" class="schDow" value="1"
+                                    style="width:auto;"> Sel</label>
+                            <label style="font-size:12px;"><input type="checkbox" class="schDow" value="2"
+                                    style="width:auto;"> Rab</label>
+                            <label style="font-size:12px;"><input type="checkbox" class="schDow" value="3"
+                                    style="width:auto;"> Kam</label>
+                            <label style="font-size:12px;"><input type="checkbox" class="schDow" value="4"
+                                    style="width:auto;"> Jum</label>
+                            <label style="font-size:12px;"><input type="checkbox" class="schDow" value="5"
+                                    style="width:auto;"> Sab</label>
+                            <label style="font-size:12px;"><input type="checkbox" class="schDow" value="6"
+                                    style="width:auto;"> Min</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="row" id="schOnceRow" style="margin-top:10px; display:none;">
+                    <div class="field">
+                        <label for="schRunDate">Run date (once)</label>
+                        <input type="date" id="schRunDate">
+                    </div>
+                </div>
+                <div class="row" style="margin-top:10px;">
+                    <div class="field">
+                        <label for="schType">Tipe Announcement</label>
+                        <select id="schType">
+                            <option value="tts">tts</option>
+                            <option value="audio">audio</option>
+                        </select>
+                    </div>
+                    <div class="field" style="flex:1; min-width:240px;">
+                        <label for="schText">Text (tts) / File path (audio)</label>
+                        <input type="text" id="schText" placeholder="Waktunya istirahat siang. / sounds/bell.mp3">
+                    </div>
+                    <div class="field">
+                        <label for="schPriority">Priority</label>
+                        <select id="schPriority">
+                            <option value="urgent">urgent</option>
+                            <option value="high">high</option>
+                            <option value="normal" selected>normal</option>
+                            <option value="low">low</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row" style="margin-top:14px;">
+                    <button id="btnCreateSchedule">Buat Jadwal</button>
+                </div>
+                <div class="status-text" id="schResult" style="margin-top:10px;"></div>
+            </div>
+
+            <div class="panel">
+                <h2>
+                    Daftar Jadwal
+                    <button class="secondary small-btn" id="btnRefreshSchedules">Refresh</button>
+                </h2>
+                <div id="schedulerWrap">
+                    <div class="empty">Hubungkan ke server untuk melihat scheduler.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-panel" data-tab="log">
+            <div class="panel">
+                <h2>
+                    Log
+                    <span style="display:flex; gap:10px; align-items:center;">
+                        <select id="logCategoryFilter" style="min-width:120px;">
+                            <option value="">Semua kategori</option>
+                            <option value="TTS">TTS</option>
+                            <option value="Queue">Queue</option>
+                            <option value="Playback">Playback</option>
+                            <option value="Zone">Zone</option>
+                            <option value="WebSocket">WebSocket</option>
+                            <option value="Error">Error</option>
+                        </select>
+                        <label
+                            style="font-size:11px; color:var(--text-dim); display:flex; align-items:center; gap:4px;">
+                            <input type="checkbox" id="logAutoScroll" checked style="min-width:auto; width:auto;"> Auto
+                            scroll
+                        </label>
+                        <button class="secondary small-btn" id="btnClearEvents">Clear</button>
+                    </span>
+                </h2>
+                <div class="event-log" id="eventLog">
+                    <div class="empty">Belum ada event.</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="footer-note">Phase 7 — Final Integration. index.html standalone, dapat dijalankan dari lokasi mana pun.
+    </div>
+
+    <script>
+        (function () {
+            "use strict";
+
+            // ---------------------------------------------------------------------
+            // Konfigurasi server default (Aturan Global #14: konfigurasi di dalam
+            // index.html). Dipakai sebagai fallback jika belum ada konfigurasi
+            // tersimpan di localStorage (lihat loadServerConfigs() di bawah).
+            // ---------------------------------------------------------------------
+            const SERVERS = [
+                {
+                    label: "Localhost",
+                    host: "localhost",
+                    port: 8000
+                }
+            ];
+
+            const SERVER_CONFIG_STORAGE_KEY = "tts_remote_client.servers.v1";
+
+            // Simpan HANYA konfigurasi statis (label/host/port) ke localStorage —
+            // TIDAK PERNAH menyimpan state runtime (status HTTP/WS, zones, queue,
+            // history, metrics, scheduler, event log), karena data tersebut harus
+            // selalu segar dari server saat reconnect, bukan dari cache lokal.
+            function saveServerConfigs() {
+                try {
+                    const configs = servers.map((s) => ({ label: s.label, host: s.host, port: s.port }));
+                    localStorage.setItem(SERVER_CONFIG_STORAGE_KEY, JSON.stringify(configs));
+                } catch (err) {
+                    // localStorage tidak tersedia (mis. private browsing) — abaikan,
+                    // aplikasi tetap berjalan dengan konfigurasi in-memory saja.
+                }
+            }
+
+            function loadServerConfigs() {
+                try {
+                    const raw = localStorage.getItem(SERVER_CONFIG_STORAGE_KEY);
+                    if (!raw) return null;
+                    const parsed = JSON.parse(raw);
+                    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+                    const valid = parsed.filter((s) => s && typeof s.label === "string" && typeof s.host === "string" && Number.isFinite(s.port));
+                    return valid.length > 0 ? valid : null;
+                } catch (err) {
+                    return null; // data korup/localStorage tidak tersedia — pakai default
+                }
+            }
+
+            // ---------------------------------------------------------------------
+            // State
+            // ---------------------------------------------------------------------
+            // Setiap entri server punya state HTTP + WebSocket + data (zones/event
+            // log) sendiri (Aturan Global #16: data antar-server tidak boleh
+            // tercampur). `id` dipakai sebagai key internal yang stabil, terpisah
+            // dari `label` (yang bisa berubah).
+            let servers = (loadServerConfigs() || SERVERS).map((s, idx) => makeServerState(s, idx));
+            let activeServerId = null;   // id server yang sedang menjadi target koneksi aktif
+            let healthCheckTimer = null; // interval untuk polling GET /health server aktif
+            let metricsRefreshTimer = null; // interval opsional untuk auto-refresh GET /status + GET /metrics
+
+            const HEALTH_CHECK_INTERVAL_MS = 10000;
+            const HEALTH_CHECK_TIMEOUT_MS = 4000;
+            const WS_RECONNECT_BASE_MS = 1000;
+            const WS_RECONNECT_MAX_MS = 15000;
+            const EVENT_LOG_MAX = 50;
+            const DEFAULT_TTS_VOICE = "id_ID-news_tts-medium";
+            const METRICS_REFRESH_INTERVAL_MS = 15000;
+
+            // Nama event WebSocket ACTUAL dari backend (core/events.py, Phase 9) —
+            // TIDAK mengarang nama/format lain di luar daftar ini.
+            const KNOWN_WS_EVENTS = new Set([
+                "snapshot", "queue_changed", "speaking", "idle", "pause", "resume", "finished"
+            ]);
+
+            function makeServerState(cfg, idx) {
+                return {
+                    id: "srv_" + idx + "_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+                    label: cfg.label,
+                    host: cfg.host,
+                    port: cfg.port,
+
+                    // --- HTTP status (Phase 2) ---
+                    httpStatus: "unknown",     // unknown | checking | online | offline
+                    lastChecked: null,
+                    lastError: null,
+
+                    // --- WebSocket status (Phase 3) ---
+                    ws: null,
+                    wsStatus: "disconnected",  // disconnected | connecting | connected | reconnecting
+                    wsManualClose: false,
+                    reconnectAttempts: 0,
+                    reconnectTimer: null,
+
+                    // --- Data realtime per-server (Phase 3) ---
+                    zones: [],       // hasil terakhir dari event "snapshot" / refresh GET /zones
+                    zonesLoaded: false,
+                    eventLog: [],     // { event, zone, timestamp, detail }
+
+                    // --- TTS / Zone target / Playback / Devices (Phase 4) ---
+                    activeZoneName: null,   // zone terpilih sebagai target TTS + device zone, per-server
+                    devices: [],             // hasil terakhir GET /devices (device output global)
+                    devicesLoaded: false,
+                    playback: { state: null, current_file: null, selected_device_id: null }, // hasil terakhir dari /pause /resume /stop /device
+
+                    // --- Queue / History / Metrics-Status (Phase 5) ---
+                    queue: { items: [], loaded: false, loading: false, error: null, statusFilter: "" },
+                    history: { items: [], loaded: false, loading: false, error: null, zoneFilter: "", statusFilter: "", limit: 50 },
+                    statusMetrics: { status: null, metrics: null, loading: false, error: null },
+
+                    // --- Scheduler (Phase 6) ---
+                    scheduler: { items: [], loaded: false, loading: false, error: null }
+                };
+            }
+
+            function baseUrl(server) {
+                return "http://" + server.host + ":" + server.port;
+            }
+
+            function wsUrl(server) {
+                return "ws://" + server.host + ":" + server.port + "/ws/status";
+            }
+
+            function getServerById(id) {
+                return servers.find((s) => s.id === id) || null;
+            }
+
+            // ---------------------------------------------------------------------
+            // DOM refs
+            // ---------------------------------------------------------------------
+            const el = {
+                serverSelect: document.getElementById("serverSelect"),
+                btnConnect: document.getElementById("btnConnect"),
+                btnDisconnect: document.getElementById("btnDisconnect"),
+                newLabel: document.getElementById("newLabel"),
+                newHost: document.getElementById("newHost"),
+                newPort: document.getElementById("newPort"),
+                btnAddServer: document.getElementById("btnAddServer"),
+                serverList: document.getElementById("serverList"),
+                activeDot: document.getElementById("activeDot"),
+                activeName: document.getElementById("activeName"),
+                activeStatusText: document.getElementById("activeStatusText"),
+                wsDot: document.getElementById("wsDot"),
+                wsStatusText: document.getElementById("wsStatusText"),
+                zoneWrap: document.getElementById("zoneWrap"),
+                btnRefreshZones: document.getElementById("btnRefreshZones"),
+                eventLog: document.getElementById("eventLog"),
+                btnClearEvents: document.getElementById("btnClearEvents"),
+
+                // Phase 4 — Zone selector & device
+                activeZoneSelect: document.getElementById("activeZoneSelect"),
+                zoneDeviceSelect: document.getElementById("zoneDeviceSelect"),
+                btnSetZoneDevice: document.getElementById("btnSetZoneDevice"),
+
+                // Phase 4 — TTS
+                ttsText: document.getElementById("ttsText"),
+                ttsVoice: document.getElementById("ttsVoice"),
+                ttsZone: document.getElementById("ttsZone"),
+                ttsPriority: document.getElementById("ttsPriority"),
+                ttsSpeed: document.getElementById("ttsSpeed"),
+                ttsPitch: document.getElementById("ttsPitch"),
+                ttsVolume: document.getElementById("ttsVolume"),
+                btnSpeak: document.getElementById("btnSpeak"),
+                btnClearTts: document.getElementById("btnClearTts"),
+                ttsResult: document.getElementById("ttsResult"),
+
+                // Phase 4 — Playback (global)
+                playbackStateBadge: document.getElementById("playbackStateBadge"),
+                playbackCurrentFile: document.getElementById("playbackCurrentFile"),
+                playbackSelectedDevice: document.getElementById("playbackSelectedDevice"),
+                btnPause: document.getElementById("btnPause"),
+                btnResume: document.getElementById("btnResume"),
+                btnStop: document.getElementById("btnStop"),
+                globalDeviceSelect: document.getElementById("globalDeviceSelect"),
+                btnSetGlobalDevice: document.getElementById("btnSetGlobalDevice"),
+                btnRefreshDevices: document.getElementById("btnRefreshDevices"),
+
+                // Phase 5 — Queue
+                queueStatusFilter: document.getElementById("queueStatusFilter"),
+                btnRefreshQueue: document.getElementById("btnRefreshQueue"),
+                queueWrap: document.getElementById("queueWrap"),
+
+                // Phase 5 — History
+                historyZoneFilter: document.getElementById("historyZoneFilter"),
+                historyStatusFilter: document.getElementById("historyStatusFilter"),
+                historyLimit: document.getElementById("historyLimit"),
+                historyAutoRefresh: document.getElementById("historyAutoRefresh"),
+                btnRefreshHistory: document.getElementById("btnRefreshHistory"),
+                historyWrap: document.getElementById("historyWrap"),
+
+                // Phase 5 — Status & Metrics
+                statusWrap: document.getElementById("statusWrap"),
+                metricsWrap: document.getElementById("metricsWrap"),
+                autoRefreshMetrics: document.getElementById("autoRefreshMetrics"),
+                btnRefreshMetrics: document.getElementById("btnRefreshMetrics"),
+
+                // Maintenance — Cache Cleanup
+                cleanupTtsMaxAge: document.getElementById("cleanupTtsMaxAge"),
+                cleanupAnnouncementMaxAge: document.getElementById("cleanupAnnouncementMaxAge"),
+                btnCleanupCache: document.getElementById("btnCleanupCache"),
+                cleanupResult: document.getElementById("cleanupResult"),
+
+                // Phase 6 — Scheduler
+                schName: document.getElementById("schName"),
+                schZone: document.getElementById("schZone"),
+                schRecurrence: document.getElementById("schRecurrence"),
+                schTimeOfDay: document.getElementById("schTimeOfDay"),
+                schWeeklyRow: document.getElementById("schWeeklyRow"),
+                schOnceRow: document.getElementById("schOnceRow"),
+                schRunDate: document.getElementById("schRunDate"),
+                schType: document.getElementById("schType"),
+                schText: document.getElementById("schText"),
+                schPriority: document.getElementById("schPriority"),
+                btnCreateSchedule: document.getElementById("btnCreateSchedule"),
+                schResult: document.getElementById("schResult"),
+                schedulerWrap: document.getElementById("schedulerWrap"),
+                btnRefreshSchedules: document.getElementById("btnRefreshSchedules"),
+
+                // Phase 6 — Log
+                logCategoryFilter: document.getElementById("logCategoryFilter"),
+                logAutoScroll: document.getElementById("logAutoScroll"),
+
+                // Phase 6 — Tabs
+                tabsNav: document.getElementById("tabsNav")
+            };
+
+            // ---------------------------------------------------------------------
+            // Tabs (Phase 6 — Dashboard UI)
+            // ---------------------------------------------------------------------
+            function switchTab(tabName) {
+                document.querySelectorAll(".tab-panel").forEach((panel) => {
+                    panel.classList.toggle("active", panel.getAttribute("data-tab") === tabName);
+                });
+                document.querySelectorAll(".tab-btn").forEach((btn) => {
+                    btn.classList.toggle("active", btn.getAttribute("data-tab") === tabName);
+                });
+            }
+            el.tabsNav.addEventListener("click", (ev) => {
+                const btn = ev.target.closest(".tab-btn");
+                if (btn) switchTab(btn.getAttribute("data-tab"));
+            });
+
+            // ---------------------------------------------------------------------
+            // Rendering — Server selector & list (Phase 2, dipertahankan)
+            // ---------------------------------------------------------------------
+            function renderServerSelect() {
+                const prevValue = el.serverSelect.value;
+                el.serverSelect.innerHTML = "";
+                servers.forEach((s) => {
+                    const opt = document.createElement("option");
+                    opt.value = s.id;
+                    opt.textContent = s.label + " (" + s.host + ":" + s.port + ")";
+                    el.serverSelect.appendChild(opt);
+                });
+                if (servers.some((s) => s.id === prevValue)) {
+                    el.serverSelect.value = prevValue;
+                } else if (activeServerId) {
+                    el.serverSelect.value = activeServerId;
+                }
+            }
+
+            function renderServerList() {
+                el.serverList.innerHTML = "";
+                if (servers.length === 0) {
+                    const empty = document.createElement("div");
+                    empty.className = "empty";
+                    empty.textContent = "Belum ada server.";
+                    el.serverList.appendChild(empty);
+                    return;
+                }
+                servers.forEach((s) => {
+                    const item = document.createElement("div");
+                    item.className = "server-item" + (s.id === activeServerId ? " active" : "");
+
+                    const info = document.createElement("div");
+                    info.className = "server-info";
+                    const dot = document.createElement("span");
+                    dot.className = "dot " + s.httpStatus;
+                    const labelWrap = document.createElement("div");
+                    labelWrap.innerHTML =
+                        '<div class="label">' + escapeHtml(s.label) + "</div>" +
+                        '<div class="addr">' + escapeHtml(s.host) + ":" + escapeHtml(String(s.port)) + "</div>";
+                    info.appendChild(dot);
+                    info.appendChild(labelWrap);
+
+                    const statusText = document.createElement("div");
+                    statusText.className = "status-text " + (s.httpStatus === "online" ? "online" : s.httpStatus === "offline" ? "offline" : "");
+                    statusText.textContent = httpStatusLabel(s) + " · WS: " + wsStatusLabel(s);
+
+                    const actions = document.createElement("div");
+                    actions.style.display = "flex";
+                    actions.style.gap = "6px";
+
+                    const btnSelect = document.createElement("button");
+                    btnSelect.className = "secondary small-btn";
+                    btnSelect.textContent = "Pilih";
+                    btnSelect.onclick = () => {
+                        el.serverSelect.value = s.id;
+                    };
+
+                    const btnRemove = document.createElement("button");
+                    btnRemove.className = "danger small-btn";
+                    btnRemove.textContent = "Hapus";
+                    btnRemove.onclick = () => removeServer(s.id);
+
+                    actions.appendChild(btnSelect);
+                    actions.appendChild(btnRemove);
+
+                    item.appendChild(info);
+                    item.appendChild(statusText);
+                    item.appendChild(actions);
+                    el.serverList.appendChild(item);
+                });
+            }
+
+            function httpStatusLabel(s) {
+                switch (s.httpStatus) {
+                    case "online": return "Online" + (s.lastChecked ? " · " + s.lastChecked : "");
+                    case "offline": return "Offline" + (s.lastError ? " · " + s.lastError : "");
+                    case "checking": return "Menghubungkan...";
+                    default: return "Belum terhubung";
+                }
+            }
+
+            function wsStatusLabel(s) {
+                switch (s.wsStatus) {
+                    case "connected": return "Connected";
+                    case "connecting": return "Connecting...";
+                    case "reconnecting": return "Reconnecting (percobaan " + s.reconnectAttempts + ")...";
+                    default: return "Disconnected";
+                }
+            }
+
+            function renderActiveBanner() {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (!active) {
+                    el.activeDot.className = "dot unknown";
+                    el.activeName.textContent = "Tidak ada server aktif";
+                    el.activeStatusText.textContent = "-";
+                    el.activeStatusText.className = "status-text";
+                    el.btnDisconnect.disabled = true;
+
+                    el.wsDot.className = "dot unknown";
+                    el.wsStatusText.textContent = "-";
+                    el.wsStatusText.className = "status-text";
+                    return;
+                }
+                el.activeDot.className = "dot " + active.httpStatus;
+                el.activeName.textContent = active.label + " (" + active.host + ":" + active.port + ")";
+                el.activeStatusText.textContent = httpStatusLabel(active);
+                el.activeStatusText.className = "status-text " + (active.httpStatus === "online" ? "online" : active.httpStatus === "offline" ? "offline" : "");
+                el.btnDisconnect.disabled = false;
+
+                el.wsDot.className = "dot " + active.wsStatus;
+                el.wsStatusText.textContent = wsStatusLabel(active);
+                el.wsStatusText.className = "status-text " + active.wsStatus;
+            }
+
+            // ---------------------------------------------------------------------
+            // Rendering — Zone panel (Phase 3)
+            // ---------------------------------------------------------------------
+            function renderZones() {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (!active) {
+                    el.zoneWrap.innerHTML = '<div class="empty">Hubungkan ke server untuk melihat zone.</div>';
+                    return;
+                }
+                if (!active.zonesLoaded) {
+                    el.zoneWrap.innerHTML = '<div class="empty">Menunggu data zone dari server (via WebSocket snapshot)...</div>';
+                    return;
+                }
+                if (active.zones.length === 0) {
+                    el.zoneWrap.innerHTML = '<div class="empty">Server tidak melaporkan zone apa pun.</div>';
+                    return;
+                }
+
+                let html = '<table class="zone-table"><thead><tr>' +
+                    "<th>Zone</th><th>Enabled</th><th>Device ID</th><th>Volume</th>" +
+                    "<th>Worker</th><th>Playback</th><th>Current File</th>" +
+                    "<th>Pending</th><th>Processing</th>" +
+                    "</tr></thead><tbody>";
+
+                active.zones.forEach((z) => {
+                    const playbackState = z.playback_state || "n/a";
+                    const playbackBadgeClass = ["playing", "paused", "idle"].includes(playbackState) ? playbackState : "";
+                    const isActiveZone = z.name === active.activeZoneName;
+                    html += "<tr" + (isActiveZone ? ' style="outline:1px solid var(--accent);"' : "") + ">" +
+                        "<td>" + escapeHtml(z.name) + (isActiveZone ? ' <span class="badge">aktif</span>' : "") + "</td>" +
+                        '<td><span class="badge enabled-' + (z.enabled ? "true" : "false") + '">' + (z.enabled ? "true" : "false") + "</span></td>" +
+                        "<td>" + (z.device_id === null || z.device_id === undefined ? "-" : escapeHtml(String(z.device_id))) + "</td>" +
+                        "<td>" + escapeHtml(String(z.volume)) + "</td>" +
+                        '<td><span class="badge">' + (z.worker_running ? "running" : "stopped") + "</span></td>" +
+                        '<td><span class="badge ' + playbackBadgeClass + '">' + escapeHtml(playbackState) + "</span></td>" +
+                        "<td>" + (z.current_file ? escapeHtml(z.current_file) : "-") + "</td>" +
+                        "<td>" + escapeHtml(String(z.pending_count)) + "</td>" +
+                        "<td>" + escapeHtml(String(z.processing_count)) + "</td>" +
+                        "</tr>";
+                });
+
+                html += "</tbody></table>";
+                el.zoneWrap.innerHTML = html;
+            }
+
+            // ---------------------------------------------------------------------
+            // Rendering — Event log (Phase 3)
+            // ---------------------------------------------------------------------
+            function renderEventLog() {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (!active || active.eventLog.length === 0) {
+                    el.eventLog.innerHTML = '<div class="empty">Belum ada event.</div>';
+                    return;
+                }
+                const filterCategory = el.logCategoryFilter.value;
+                const filtered = filterCategory
+                    ? active.eventLog.filter((e) => e.category === filterCategory)
+                    : active.eventLog;
+
+                if (filtered.length === 0) {
+                    el.eventLog.innerHTML = '<div class="empty">Tidak ada event untuk kategori ini.</div>';
+                    return;
+                }
+
+                // Log kronologis (lama -> baru), dilengkapi badge kategori.
+                const rows = filtered.map((e) => {
+                    return '<div class="event-row">' +
+                        '<span class="ev-time">' + escapeHtml(e.time) + "</span>" +
+                        '<span class="badge">' + escapeHtml(e.category) + "</span>" +
+                        '<span class="ev-type ' + escapeHtml(e.event) + '">' + escapeHtml(e.event) + "</span>" +
+                        (e.zone ? '<span class="ev-zone">[' + escapeHtml(e.zone) + "]</span>" : "") +
+                        '<span class="ev-detail">' + escapeHtml(e.detail || "") + "</span>" +
+                        "</div>";
+                });
+                el.eventLog.innerHTML = rows.join("");
+
+                if (el.logAutoScroll.checked) {
+                    el.eventLog.scrollTop = el.eventLog.scrollHeight;
+                }
+            }
+
+            // ---------------------------------------------------------------------
+            // Rendering — Zone selector & TTS-target selector (Phase 4)
+            // ---------------------------------------------------------------------
+            function renderZoneSelectors() {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                const zones = active && active.zonesLoaded ? active.zones : [];
+
+                // Selector "Zone Aktif" (target default TTS + target device zone)
+                const prevActiveSel = el.activeZoneSelect.value;
+                el.activeZoneSelect.innerHTML = "";
+                if (zones.length === 0) {
+                    el.activeZoneSelect.innerHTML = '<option value="">-</option>';
+                } else {
+                    zones.forEach((z) => {
+                        const opt = document.createElement("option");
+                        opt.value = z.name;
+                        opt.textContent = z.name + (z.enabled ? "" : " (disabled)");
+                        el.activeZoneSelect.appendChild(opt);
+                    });
+                }
+                if (active && active.activeZoneName && zones.some((z) => z.name === active.activeZoneName)) {
+                    el.activeZoneSelect.value = active.activeZoneName;
+                } else if (prevActiveSel && zones.some((z) => z.name === prevActiveSel)) {
+                    el.activeZoneSelect.value = prevActiveSel;
+                }
+
+                // Selector zone tujuan pada form TTS: opsional, default memakai Zone Aktif.
+                const prevTtsZone = el.ttsZone.value;
+                el.ttsZone.innerHTML = '<option value="">(pakai Zone Aktif)</option>';
+                zones.forEach((z) => {
+                    const opt = document.createElement("option");
+                    opt.value = z.name;
+                    opt.textContent = z.name + (z.enabled ? "" : " (disabled)");
+                    el.ttsZone.appendChild(opt);
+                });
+                if (zones.some((z) => z.name === prevTtsZone)) {
+                    el.ttsZone.value = prevTtsZone;
+                }
+
+                // Selector filter zone pada panel History (Phase 5): opsional, default "Semua zone".
+                const prevHistoryZone = el.historyZoneFilter.value;
+                el.historyZoneFilter.innerHTML = '<option value="">Semua zone</option>';
+                zones.forEach((z) => {
+                    const opt = document.createElement("option");
+                    opt.value = z.name;
+                    opt.textContent = z.name;
+                    el.historyZoneFilter.appendChild(opt);
+                });
+                if (zones.some((z) => z.name === prevHistoryZone)) {
+                    el.historyZoneFilter.value = prevHistoryZone;
+                }
+
+                // Selector zone pada form Buat Jadwal (Phase 6): default "main" jika tersedia.
+                const prevSchZone = el.schZone.value;
+                el.schZone.innerHTML = "";
+                if (zones.length === 0) {
+                    el.schZone.innerHTML = '<option value="main">main</option>';
+                } else {
+                    zones.forEach((z) => {
+                        const opt = document.createElement("option");
+                        opt.value = z.name;
+                        opt.textContent = z.name;
+                        el.schZone.appendChild(opt);
+                    });
+                }
+                if (zones.some((z) => z.name === prevSchZone)) {
+                    el.schZone.value = prevSchZone;
+                }
+            }
+
+            // ---------------------------------------------------------------------
+            // Rendering — Device selectors (Phase 4, dari GET /devices)
+            // ---------------------------------------------------------------------
+            function renderDeviceSelectors() {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                const devices = active && active.devicesLoaded ? active.devices : [];
+
+                [el.zoneDeviceSelect, el.globalDeviceSelect].forEach((selectEl) => {
+                    const prevVal = selectEl.value;
+                    selectEl.innerHTML = "";
+                    if (devices.length === 0) {
+                        selectEl.innerHTML = '<option value="">' + (active && active.devicesLoaded ? "Tidak ada device" : "-") + "</option>";
+                        return;
+                    }
+                    devices.forEach((d) => {
+                        const opt = document.createElement("option");
+                        opt.value = String(d.id);
+                        opt.textContent = d.name + (d.is_default ? " (default)" : "");
+                        selectEl.appendChild(opt);
+                    });
+                    if (devices.some((d) => String(d.id) === prevVal)) {
+                        selectEl.value = prevVal;
+                    }
+                });
+            }
+
+            // ---------------------------------------------------------------------
+            // Rendering — Playback panel global (Phase 4, dari /pause /resume /stop /device)
+            // ---------------------------------------------------------------------
+            function renderPlayback() {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                const pb = active ? active.playback : { state: null, current_file: null, selected_device_id: null };
+
+                el.playbackStateBadge.textContent = pb.state || "-";
+                el.playbackStateBadge.className = "badge" + (["playing", "paused", "idle"].includes(pb.state) ? " " + pb.state : "");
+                el.playbackCurrentFile.textContent = pb.current_file || "-";
+                el.playbackSelectedDevice.textContent = pb.selected_device_id === null || pb.selected_device_id === undefined ? "-" : String(pb.selected_device_id);
+
+                const disabled = !active;
+                el.btnPause.disabled = disabled;
+                el.btnResume.disabled = disabled;
+                el.btnStop.disabled = disabled;
+                el.btnSetGlobalDevice.disabled = disabled;
+                el.btnRefreshDevices.disabled = disabled;
+                el.btnSpeak.disabled = disabled;
+                el.btnSetZoneDevice.disabled = disabled;
+            }
+
+            // ---------------------------------------------------------------------
+            // Rendering — Queue panel (Phase 5, dari GET /zones/{name}/queue)
+            // ---------------------------------------------------------------------
+            function renderQueue() {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (!active) {
+                    el.queueWrap.innerHTML = '<div class="empty">Hubungkan ke server untuk melihat queue.</div>';
+                    return;
+                }
+                if (active.queue.loading) {
+                    el.queueWrap.innerHTML = '<div class="empty">Memuat queue...</div>';
+                    return;
+                }
+                if (active.queue.error) {
+                    el.queueWrap.innerHTML = '<div class="status-text offline">' + escapeHtml(active.queue.error) + "</div>";
+                    return;
+                }
+                if (!active.activeZoneName) {
+                    el.queueWrap.innerHTML = '<div class="empty">Pilih Zone Aktif (panel Zone) untuk melihat queue.</div>';
+                    return;
+                }
+                if (!active.queue.loaded) {
+                    el.queueWrap.innerHTML = '<div class="empty">Menunggu data queue...</div>';
+                    return;
+                }
+                if (active.queue.items.length === 0) {
+                    el.queueWrap.innerHTML = '<div class="empty">Tidak ada item queue untuk filter ini.</div>';
+                    return;
+                }
+
+                let html = '<table class="zone-table"><thead><tr>' +
+                    "<th>Pos</th><th>Text</th><th>Type</th><th>Priority</th><th>Status</th><th>Voice</th><th>Updated</th><th>Error</th>" +
+                    "</tr></thead><tbody>";
+                active.queue.items.forEach((it) => {
+                    html += "<tr>" +
+                        "<td>" + (it.position === null || it.position === undefined ? "-" : it.position) + "</td>" +
+                        "<td>" + escapeHtml(it.text) + "</td>" +
+                        "<td>" + escapeHtml(it.type) + "</td>" +
+                        "<td>" + escapeHtml(it.priority) + "</td>" +
+                        '<td><span class="badge">' + escapeHtml(it.status) + "</span></td>" +
+                        "<td>" + escapeHtml(it.voice) + "</td>" +
+                        "<td>" + escapeHtml(new Date(it.updated_at).toLocaleTimeString()) + "</td>" +
+                        "<td>" + (it.error_message ? escapeHtml(it.error_message) : "-") + "</td>" +
+                        "</tr>";
+                });
+                html += "</tbody></table>";
+                el.queueWrap.innerHTML = html;
+            }
+
+            // ---------------------------------------------------------------------
+            // Rendering — History panel (Phase 5, dari GET /history)
+            // ---------------------------------------------------------------------
+            function renderHistory() {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (!active) {
+                    el.historyWrap.innerHTML = '<div class="empty">Hubungkan ke server untuk melihat history.</div>';
+                    return;
+                }
+                if (active.history.loading) {
+                    el.historyWrap.innerHTML = '<div class="empty">Memuat history...</div>';
+                    return;
+                }
+                if (active.history.error) {
+                    el.historyWrap.innerHTML = '<div class="status-text offline">' + escapeHtml(active.history.error) + "</div>";
+                    return;
+                }
+                if (!active.history.loaded) {
+                    el.historyWrap.innerHTML = '<div class="empty">Belum ada data — klik Refresh.</div>';
+                    return;
+                }
+                if (active.history.items.length === 0) {
+                    el.historyWrap.innerHTML = '<div class="empty">Tidak ada history untuk filter ini.</div>';
+                    return;
+                }
+
+                let html = '<table class="zone-table"><thead><tr>' +
+                    "<th>Zone</th><th>Text</th><th>Type</th><th>Status</th><th>Priority</th><th>Updated</th><th>Cache Hit</th><th>Error</th>" +
+                    "</tr></thead><tbody>";
+                active.history.items.forEach((it) => {
+                    html += "<tr>" +
+                        "<td>" + escapeHtml(it.zone) + "</td>" +
+                        "<td>" + escapeHtml(it.text) + "</td>" +
+                        "<td>" + escapeHtml(it.type) + "</td>" +
+                        '<td><span class="badge">' + escapeHtml(it.status) + "</span></td>" +
+                        "<td>" + escapeHtml(it.priority) + "</td>" +
+                        "<td>" + escapeHtml(new Date(it.updated_at).toLocaleTimeString()) + "</td>" +
+                        "<td>" + (it.cache_hit === null || it.cache_hit === undefined ? "-" : (it.cache_hit ? "true" : "false")) + "</td>" +
+                        "<td>" + (it.error_message ? escapeHtml(it.error_message) : "-") + "</td>" +
+                        "</tr>";
+                });
+                html += "</tbody></table>";
+                el.historyWrap.innerHTML = html;
+            }
+
+            // ---------------------------------------------------------------------
+            // Rendering — Status & Metrics panel (Phase 5, dari GET /status + GET /metrics)
+            // ---------------------------------------------------------------------
+            function statField(label, value) {
+                return '<div class="field"><label>' + escapeHtml(label) + '</label><span class="status-text">' + escapeHtml(String(value)) + "</span></div>";
+            }
+
+            function formatUptime(totalSeconds) {
+                const seconds = Math.max(0, Math.floor(totalSeconds));
+                const h = Math.floor(seconds / 3600);
+                const m = Math.floor((seconds % 3600) / 60);
+                const s = seconds % 60;
+                return h + "j " + m + "m " + s + "d";
+            }
+
+            function formatBytes(bytes) {
+                if (bytes < 1024) return bytes + " B";
+                if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+                return (bytes / 1024 / 1024).toFixed(2) + " MB";
+            }
+
+            function badgeMap(obj) {
+                const keys = Object.keys(obj || {});
+                if (keys.length === 0) return '<span class="empty">-</span>';
+                return keys.map((k) => '<span class="badge">' + escapeHtml(k) + ": " + obj[k] + "</span>").join(" ");
+            }
+
+            function renderStatusMetrics() {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                el.btnCleanupCache.disabled = !active;
+                if (!active) {
+                    el.statusWrap.innerHTML = '<div class="empty">Hubungkan ke server untuk melihat status.</div>';
+                    el.metricsWrap.innerHTML = "";
+                    return;
+                }
+                if (active.statusMetrics.error && !active.statusMetrics.status && !active.statusMetrics.metrics) {
+                    el.statusWrap.innerHTML = '<div class="status-text offline">' + escapeHtml(active.statusMetrics.error) + "</div>";
+                    el.metricsWrap.innerHTML = "";
+                    return;
+                }
+
+                const s = active.statusMetrics.status;
+                const m = active.statusMetrics.metrics;
+
+                if (active.statusMetrics.loading && !s && !m) {
+                    el.statusWrap.innerHTML = '<div class="empty">Memuat status...</div>';
+                    el.metricsWrap.innerHTML = "";
+                    return;
+                }
+
+                el.statusWrap.innerHTML = s
+                    ? '<div class="row">' +
+                    statField("App", s.app_name) + statField("Version", s.version) + statField("Environment", s.environment) +
+                    statField("Uptime", formatUptime(s.uptime_seconds)) + statField("WS Clients", s.connected_websocket_clients) +
+                    "</div>" +
+                    '<div class="row" style="margin-top:10px;">' +
+                    statField("TTS Cache", s.tts_cache.file_count + " file / " + formatBytes(s.tts_cache.total_size_bytes)) +
+                    statField("Announcement Cache", s.announcement_cache.file_count + " file / " + formatBytes(s.announcement_cache.total_size_bytes)) +
+                    "</div>"
+                    : '<div class="empty">Status belum dimuat.</div>';
+
+                el.metricsWrap.innerHTML = m
+                    ? '<div class="row">' +
+                    statField("Zones", m.zones_count) + statField("Active Schedules", m.active_schedules_count) +
+                    statField("WS Clients", m.connected_websocket_clients) +
+                    statField("Memory (MB)", m.memory_usage_mb === null || m.memory_usage_mb === undefined ? "n/a" : m.memory_usage_mb.toFixed(1)) +
+                    "</div>" +
+                    '<div style="margin-top:10px;"><label style="font-size:11px; color:var(--text-dim);">Items by status</label><br>' + badgeMap(m.total_items_by_status) + "</div>" +
+                    '<div style="margin-top:10px;"><label style="font-size:11px; color:var(--text-dim);">Cumulative events</label><br>' + badgeMap(m.cumulative_events) + "</div>" +
+                    '<div style="margin-top:10px;"><label style="font-size:11px; color:var(--text-dim);">Cumulative finished (by reason)</label><br>' + badgeMap(m.cumulative_finished_by_reason) + "</div>"
+                    : '<div class="empty">Metrics belum dimuat.</div>';
+            }
+
+            // ---------------------------------------------------------------------
+            // Rendering — Scheduler panel (Phase 6, dari GET /scheduler)
+            // ---------------------------------------------------------------------
+            function summarizeAnnouncement(a) {
+                if (!a) return "-";
+                if (a.type === "tts") return "tts: " + (a.text || "-");
+                if (a.type === "audio") return "audio: " + (a.file || "-");
+                return a.type;
+            }
+
+            function renderScheduler() {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (!active) {
+                    el.schedulerWrap.innerHTML = '<div class="empty">Hubungkan ke server untuk melihat scheduler.</div>';
+                    return;
+                }
+                if (active.scheduler.loading) {
+                    el.schedulerWrap.innerHTML = '<div class="empty">Memuat scheduler...</div>';
+                    return;
+                }
+                if (active.scheduler.error) {
+                    el.schedulerWrap.innerHTML = '<div class="status-text offline">' + escapeHtml(active.scheduler.error) + "</div>";
+                    return;
+                }
+                if (!active.scheduler.loaded) {
+                    el.schedulerWrap.innerHTML = '<div class="empty">Belum ada data — klik Refresh.</div>';
+                    return;
+                }
+                if (active.scheduler.items.length === 0) {
+                    el.schedulerWrap.innerHTML = '<div class="empty">Belum ada jadwal.</div>';
+                    return;
+                }
+
+                let html = '<table class="zone-table"><thead><tr>' +
+                    "<th>Nama</th><th>Enabled</th><th>Zone</th><th>Recurrence</th><th>Time</th>" +
+                    "<th>Next Run</th><th>Last Triggered</th><th>Announcement</th><th>Aksi</th>" +
+                    "</tr></thead><tbody>";
+
+                active.scheduler.items.forEach((s) => {
+                    html += "<tr>" +
+                        "<td>" + escapeHtml(s.name) + "</td>" +
+                        '<td><span class="badge enabled-' + (s.enabled ? "true" : "false") + '">' + (s.enabled ? "true" : "false") + "</span></td>" +
+                        "<td>" + escapeHtml(s.zone) + "</td>" +
+                        "<td>" + escapeHtml(s.recurrence) + "</td>" +
+                        "<td>" + escapeHtml(String(s.time_of_day)) + "</td>" +
+                        "<td>" + (s.next_run_at ? escapeHtml(new Date(s.next_run_at).toLocaleString()) : "-") + "</td>" +
+                        "<td>" + (s.last_triggered_at ? escapeHtml(new Date(s.last_triggered_at).toLocaleString()) : "-") + "</td>" +
+                        "<td>" + escapeHtml(summarizeAnnouncement(s.announcement)) + "</td>" +
+                        '<td><span class="sch-actions" data-id="' + escapeHtml(s.id) + '">' +
+                        '<button class="secondary small-btn sch-trigger">Trigger</button> ' +
+                        '<button class="secondary small-btn sch-toggle">' + (s.enabled ? "Disable" : "Enable") + "</button> " +
+                        '<button class="danger small-btn sch-delete">Delete</button>' +
+                        "</span></td>" +
+                        "</tr>";
+                });
+                html += "</tbody></table>";
+                el.schedulerWrap.innerHTML = html;
+
+                // Delegasi aksi per baris (Trigger/Enable-Disable/Delete) — dipasang
+                // ulang setiap render karena innerHTML diganti seluruhnya.
+                el.schedulerWrap.querySelectorAll(".sch-actions").forEach((wrap) => {
+                    const id = wrap.getAttribute("data-id");
+                    const schedule = active.scheduler.items.find((it) => it.id === id);
+                    if (!schedule) return;
+                    const triggerBtn = wrap.querySelector(".sch-trigger");
+                    const toggleBtn = wrap.querySelector(".sch-toggle");
+                    const deleteBtn = wrap.querySelector(".sch-delete");
+                    if (triggerBtn) triggerBtn.onclick = () => triggerSchedule(active, schedule);
+                    if (toggleBtn) toggleBtn.onclick = () => toggleScheduleEnabled(active, schedule);
+                    if (deleteBtn) deleteBtn.onclick = () => {
+                        if (confirm("Hapus jadwal '" + schedule.name + "'?")) deleteSchedule(active, schedule);
+                    };
+                });
+            }
+
+            function renderAll() {
+                renderServerSelect();
+                renderServerList();
+                renderActiveBanner();
+                renderZones();
+                renderZoneSelectors();
+                renderDeviceSelectors();
+                renderPlayback();
+                renderQueue();
+                renderHistory();
+                renderStatusMetrics();
+                renderScheduler();
+                renderEventLog();
+            }
+
+            function escapeHtml(str) {
+                const div = document.createElement("div");
+                div.textContent = str;
+                return div.innerHTML;
+            }
+
+            // ---------------------------------------------------------------------
+            // Koneksi HTTP dasar (GET /health) — Phase 2, dipertahankan
+            // ---------------------------------------------------------------------
+            async function checkHealth(server) {
+                server.httpStatus = "checking";
+                renderAll();
+
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
+
+                try {
+                    const res = await fetch(baseUrl(server) + "/health", {
+                        method: "GET",
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeout);
+
+                    if (!res.ok) {
+                        server.httpStatus = "offline";
+                        server.lastError = "HTTP " + res.status;
+                    } else {
+                        const data = await res.json();
+                        server.httpStatus = "online";
+                        server.lastError = null;
+                        server.lastChecked = new Date().toLocaleTimeString();
+                        void data;
+                    }
+                } catch (err) {
+                    clearTimeout(timeout);
+                    server.httpStatus = "offline";
+                    server.lastError = err.name === "AbortError" ? "Timeout" : "Gagal terhubung";
+                }
+                renderAll();
+            }
+
+            function startHealthPolling(server) {
+                stopHealthPolling();
+                healthCheckTimer = setInterval(() => {
+                    const current = getServerById(activeServerId);
+                    if (current) checkHealth(current);
+                }, HEALTH_CHECK_INTERVAL_MS);
+            }
+
+            function stopHealthPolling() {
+                if (healthCheckTimer) {
+                    clearInterval(healthCheckTimer);
+                    healthCheckTimer = null;
+                }
+            }
+
+            // ---------------------------------------------------------------------
+            // Refresh Zone via GET /zones (endpoint aktual, Phase 1/6) — dipakai
+            // saat WebSocket baru terhubung dan sebagai refresh reaktif ketika
+            // event queue_changed/finished terjadi (bukan polling interval).
+            // ---------------------------------------------------------------------
+            async function refreshZones(server) {
+                try {
+                    const res = await fetch(baseUrl(server) + "/zones", { method: "GET" });
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    if (Array.isArray(data.zones)) {
+                        server.zones = data.zones;
+                        server.zonesLoaded = true;
+                        // Pilih zone default begitu data zone tersedia dan belum ada zone
+                        // aktif yang dipilih (mis. saat WebSocket baru terhubung).
+                        if (!server.activeZoneName && data.zones.length > 0) {
+                            server.activeZoneName = data.zones[0].name;
+                        }
+                        if (server.id === activeServerId) {
+                            renderZones();
+                            renderZoneSelectors();
+                        }
+                        // Queue panel di-scope ke Zone Aktif — segarkan setiap kali data
+                        // zone disegarkan (event-driven, bukan polling interval baru).
+                        refreshQueue(server);
+                    }
+                } catch (err) {
+                    // Refresh gagal (mis. server offline sementara) — biarkan data zone
+                    // terakhir yang diketahui tetap tampil, jangan mengganti dengan data palsu.
+                }
+            }
+
+            // ---------------------------------------------------------------------
+            // Devices — GET /devices (global, Phase 4)
+            // ---------------------------------------------------------------------
+            async function refreshDevices(server) {
+                try {
+                    const res = await fetch(baseUrl(server) + "/devices", { method: "GET" });
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    if (Array.isArray(data.devices)) {
+                        server.devices = data.devices;
+                        server.devicesLoaded = true;
+                        if (server.id === activeServerId) renderDeviceSelectors();
+                    }
+                } catch (err) {
+                    // Biarkan daftar device terakhir yang diketahui tetap tampil.
+                }
+            }
+
+            // ---------------------------------------------------------------------
+            // Queue — GET /zones/{name}/queue (Phase 5, scoped ke Zone Aktif)
+            // ---------------------------------------------------------------------
+            async function refreshQueue(server) {
+                if (!server.activeZoneName) {
+                    server.queue.items = [];
+                    server.queue.loaded = false;
+                    server.queue.error = null;
+                    if (server.id === activeServerId) renderQueue();
+                    return;
+                }
+                server.queue.loading = true;
+                server.queue.error = null;
+                if (server.id === activeServerId) renderQueue();
+                try {
+                    let url = baseUrl(server) + "/zones/" + encodeURIComponent(server.activeZoneName) + "/queue";
+                    if (server.queue.statusFilter) url += "?status=" + encodeURIComponent(server.queue.statusFilter);
+                    const res = await fetch(url, { method: "GET" });
+                    if (!res.ok) {
+                        const errData = await res.json().catch(() => null);
+                        server.queue.error = errData && errData.message ? errData.message : "HTTP " + res.status;
+                    } else {
+                        const data = await res.json();
+                        server.queue.items = Array.isArray(data.items) ? data.items : [];
+                        server.queue.loaded = true;
+                    }
+                } catch (err) {
+                    server.queue.error = "Server tidak dapat dihubungi.";
+                } finally {
+                    server.queue.loading = false;
+                    if (server.id === activeServerId) renderQueue();
+                }
+            }
+
+            // ---------------------------------------------------------------------
+            // History — GET /history (Phase 5)
+            // ---------------------------------------------------------------------
+            async function refreshHistory(server) {
+                server.history.loading = true;
+                server.history.error = null;
+                if (server.id === activeServerId) renderHistory();
+                try {
+                    const params = new URLSearchParams();
+                    if (server.history.zoneFilter) params.set("zone", server.history.zoneFilter);
+                    if (server.history.statusFilter) params.set("status", server.history.statusFilter);
+                    params.set("limit", String(server.history.limit || 50));
+                    const res = await fetch(baseUrl(server) + "/history?" + params.toString(), { method: "GET" });
+                    if (!res.ok) {
+                        const errData = await res.json().catch(() => null);
+                        server.history.error = errData && errData.message ? errData.message : "HTTP " + res.status;
+                    } else {
+                        const data = await res.json();
+                        server.history.items = Array.isArray(data.items) ? data.items : [];
+                        server.history.loaded = true;
+                    }
+                } catch (err) {
+                    server.history.error = "Server tidak dapat dihubungi.";
+                } finally {
+                    server.history.loading = false;
+                    if (server.id === activeServerId) renderHistory();
+                }
+            }
+
+            // ---------------------------------------------------------------------
+            // Status & Metrics — GET /status + GET /metrics (Phase 5)
+            // ---------------------------------------------------------------------
+            async function refreshStatusMetrics(server) {
+                server.statusMetrics.loading = true;
+                server.statusMetrics.error = null;
+                if (server.id === activeServerId) renderStatusMetrics();
+                try {
+                    const [statusRes, metricsRes] = await Promise.all([
+                        fetch(baseUrl(server) + "/status", { method: "GET" }),
+                        fetch(baseUrl(server) + "/metrics", { method: "GET" })
+                    ]);
+                    if (statusRes.ok) server.statusMetrics.status = await statusRes.json();
+                    if (metricsRes.ok) server.statusMetrics.metrics = await metricsRes.json();
+                    if (!statusRes.ok && !metricsRes.ok) {
+                        server.statusMetrics.error = "Gagal memuat status & metrics (HTTP " + statusRes.status + "/" + metricsRes.status + ")";
+                    }
+                } catch (err) {
+                    server.statusMetrics.error = "Server tidak dapat dihubungi.";
+                } finally {
+                    server.statusMetrics.loading = false;
+                    if (server.id === activeServerId) renderStatusMetrics();
+                }
+            }
+
+            // ---------------------------------------------------------------------
+            // Maintenance — POST /maintenance/cache/cleanup (payload/response persis
+            // schemas/maintenance.py: CacheCleanupRequest / CacheCleanupResponse)
+            // ---------------------------------------------------------------------
+            async function cleanupCache(server) {
+                const ttsRaw = el.cleanupTtsMaxAge.value.trim();
+                const annRaw = el.cleanupAnnouncementMaxAge.value.trim();
+                const payload = {
+                    tts_max_age_days: ttsRaw === "" ? null : parseFloat(ttsRaw),
+                    announcement_max_age_days: annRaw === "" ? null : parseFloat(annRaw)
+                };
+
+                el.btnCleanupCache.disabled = true;
+                el.cleanupResult.textContent = "Membersihkan cache...";
+                el.cleanupResult.className = "status-text";
+
+                try {
+                    const res = await fetch(baseUrl(server) + "/maintenance/cache/cleanup", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload)
+                    });
+                    const data = await res.json().catch(() => null);
+                    if (!res.ok) {
+                        const msg = data && data.message ? data.message : "HTTP " + res.status;
+                        el.cleanupResult.textContent = "Gagal: " + msg;
+                        el.cleanupResult.className = "status-text offline";
+                        addEventLogEntry(server, "error", null, "Cache cleanup gagal: " + msg, "Error");
+                    } else {
+                        el.cleanupResult.textContent =
+                            "TTS: " + data.tts_cache.deleted_count + " file dihapus (" + formatBytes(data.tts_cache.freed_bytes) + ")" +
+                            " · Announcement: " + data.announcement_cache.deleted_count + " file dihapus (" + formatBytes(data.announcement_cache.freed_bytes) + ")";
+                        el.cleanupResult.className = "status-text online";
+                        // Cache stats ditampilkan di panel Status — segarkan setelah cleanup.
+                        refreshStatusMetrics(server);
+                    }
+                } catch (err) {
+                    el.cleanupResult.textContent = "Gagal: server tidak dapat dihubungi.";
+                    el.cleanupResult.className = "status-text offline";
+                    addEventLogEntry(server, "error", null, "Cache cleanup: server tidak dapat dihubungi.", "Error");
+                } finally {
+                    el.btnCleanupCache.disabled = false;
+                }
+            }
+
+            function startMetricsAutoRefresh(server) {
+                stopMetricsAutoRefresh();
+                if (!el.autoRefreshMetrics.checked) return;
+                metricsRefreshTimer = setInterval(() => {
+                    if (!el.autoRefreshMetrics.checked) return;
+                    const current = getServerById(activeServerId);
+                    if (current) refreshStatusMetrics(current);
+                }, METRICS_REFRESH_INTERVAL_MS);
+            }
+
+            function stopMetricsAutoRefresh() {
+                if (metricsRefreshTimer) {
+                    clearInterval(metricsRefreshTimer);
+                    metricsRefreshTimer = null;
+                }
+            }
+
+            // ---------------------------------------------------------------------
+            // Scheduler — GET/POST/PUT/DELETE /scheduler, POST /scheduler/{id}/trigger (Phase 6)
+            // ---------------------------------------------------------------------
+            async function refreshSchedules(server) {
+                server.scheduler.loading = true;
+                server.scheduler.error = null;
+                if (server.id === activeServerId) renderScheduler();
+                try {
+                    const res = await fetch(baseUrl(server) + "/scheduler", { method: "GET" });
+                    if (!res.ok) {
+                        const errData = await res.json().catch(() => null);
+                        server.scheduler.error = errData && errData.message ? errData.message : "HTTP " + res.status;
+                    } else {
+                        const data = await res.json();
+                        server.scheduler.items = Array.isArray(data.schedules) ? data.schedules : [];
+                        server.scheduler.loaded = true;
+                    }
+                } catch (err) {
+                    server.scheduler.error = "Server tidak dapat dihubungi.";
+                } finally {
+                    server.scheduler.loading = false;
+                    if (server.id === activeServerId) renderScheduler();
+                }
+            }
+
+            async function createSchedule(server, payload) {
+                el.btnCreateSchedule.disabled = true;
+                el.schResult.textContent = "Membuat jadwal...";
+                el.schResult.className = "status-text";
+                try {
+                    const res = await fetch(baseUrl(server) + "/scheduler", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload)
+                    });
+                    const data = await res.json().catch(() => null);
+                    if (!res.ok) {
+                        const msg = data && data.message ? data.message : "HTTP " + res.status;
+                        el.schResult.textContent = "Gagal: " + msg;
+                        el.schResult.className = "status-text offline";
+                        addEventLogEntry(server, "error", payload.zone, "Buat jadwal gagal: " + msg, "Error");
+                    } else {
+                        el.schResult.textContent = "Jadwal '" + data.name + "' dibuat.";
+                        el.schResult.className = "status-text online";
+                        refreshSchedules(server);
+                    }
+                } catch (err) {
+                    el.schResult.textContent = "Gagal membuat jadwal: server tidak dapat dihubungi.";
+                    el.schResult.className = "status-text offline";
+                } finally {
+                    el.btnCreateSchedule.disabled = false;
+                }
+            }
+
+            async function toggleScheduleEnabled(server, schedule) {
+                try {
+                    const res = await fetch(baseUrl(server) + "/scheduler/" + encodeURIComponent(schedule.id), {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ enabled: !schedule.enabled })
+                    });
+                    if (!res.ok) {
+                        const errData = await res.json().catch(() => null);
+                        addEventLogEntry(server, "error", schedule.zone, "Update jadwal gagal: " + (errData && errData.message ? errData.message : "HTTP " + res.status), "Error");
+                    }
+                    refreshSchedules(server);
+                } catch (err) {
+                    addEventLogEntry(server, "error", schedule.zone, "Update jadwal: server tidak dapat dihubungi.", "Error");
+                }
+            }
+
+            async function deleteSchedule(server, schedule) {
+                try {
+                    const res = await fetch(baseUrl(server) + "/scheduler/" + encodeURIComponent(schedule.id), { method: "DELETE" });
+                    if (!res.ok) {
+                        const errData = await res.json().catch(() => null);
+                        addEventLogEntry(server, "error", schedule.zone, "Hapus jadwal gagal: " + (errData && errData.message ? errData.message : "HTTP " + res.status), "Error");
+                    }
+                    refreshSchedules(server);
+                } catch (err) {
+                    addEventLogEntry(server, "error", schedule.zone, "Hapus jadwal: server tidak dapat dihubungi.", "Error");
+                }
+            }
+
+            async function triggerSchedule(server, schedule) {
+                try {
+                    const res = await fetch(baseUrl(server) + "/scheduler/" + encodeURIComponent(schedule.id) + "/trigger", { method: "POST" });
+                    const data = await res.json().catch(() => null);
+                    if (!res.ok) {
+                        const msg = data && data.message ? data.message : "HTTP " + res.status;
+                        addEventLogEntry(server, "error", schedule.zone, "Trigger jadwal '" + schedule.name + "' gagal: " + msg, "Error");
+                    } else {
+                        addEventLogEntry(server, "tts_send", schedule.zone, "Trigger manual jadwal '" + schedule.name + "'", "Queue");
+                        refreshZones(server); // ikut refresh queue zone terkait (via refreshZones -> refreshQueue)
+                    }
+                    refreshSchedules(server);
+                } catch (err) {
+                    addEventLogEntry(server, "error", schedule.zone, "Trigger jadwal: server tidak dapat dihubungi.", "Error");
+                }
+            }
+
+
+            // ---------------------------------------------------------------------
+            async function sendSpeak(server) {
+                const zoneName = el.ttsZone.value || server.activeZoneName;
+                if (!zoneName) {
+                    el.ttsResult.textContent = "Pilih Zone terlebih dahulu.";
+                    el.ttsResult.className = "status-text offline";
+                    return;
+                }
+                const text = el.ttsText.value.trim();
+                if (!text) {
+                    el.ttsResult.textContent = "Text tidak boleh kosong.";
+                    el.ttsResult.className = "status-text offline";
+                    return;
+                }
+
+                const payload = {
+                    type: "tts",
+                    text: text,
+                    voice: el.ttsVoice.value.trim() || null,
+                    priority: el.ttsPriority.value,
+                    speed: parseFloat(el.ttsSpeed.value) || 1.0,
+                    pitch: parseFloat(el.ttsPitch.value) || 1.0,
+                    volume: parseFloat(el.ttsVolume.value) || 1.0
+                };
+
+                el.btnSpeak.disabled = true;
+                el.ttsResult.textContent = "Mengirim...";
+                el.ttsResult.className = "status-text";
+
+                try {
+                    const res = await fetch(baseUrl(server) + "/zones/" + encodeURIComponent(zoneName) + "/speak", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload)
+                    });
+                    const data = await res.json().catch(() => null);
+                    if (!res.ok) {
+                        const msg = data && data.message ? data.message : "HTTP " + res.status;
+                        el.ttsResult.textContent = "Gagal: " + msg;
+                        el.ttsResult.className = "status-text offline";
+                        addEventLogEntry(server, "error", zoneName, "TTS speak gagal: " + msg, "Error");
+                    } else {
+                        el.ttsResult.textContent = "Terkirim ke zone '" + zoneName + "' (status: " + data.status + ", id: " + String(data.id).slice(0, 8) + "...)";
+                        el.ttsResult.className = "status-text online";
+                        addEventLogEntry(server, "tts_send", zoneName, "text=\"" + text.slice(0, 40) + (text.length > 40 ? "..." : "") + "\"", "TTS");
+                    }
+                } catch (err) {
+                    el.ttsResult.textContent = "Gagal mengirim: server tidak dapat dihubungi.";
+                    el.ttsResult.className = "status-text offline";
+                    addEventLogEntry(server, "error", zoneName, "TTS speak: server tidak dapat dihubungi.", "Error");
+                } finally {
+                    el.btnSpeak.disabled = false;
+                }
+            }
+
+            function clearTtsForm() {
+                el.ttsText.value = "";
+                el.ttsVoice.value = DEFAULT_TTS_VOICE;
+                el.ttsPriority.value = "normal";
+                el.ttsSpeed.value = "1.0";
+                el.ttsPitch.value = "1.0";
+                el.ttsVolume.value = "1.0";
+                el.ttsResult.textContent = "";
+            }
+
+            // ---------------------------------------------------------------------
+            // Playback global — POST /pause /resume /stop /device (Phase 4)
+            // ---------------------------------------------------------------------
+            async function callPlaybackEndpoint(server, path) {
+                try {
+                    const res = await fetch(baseUrl(server) + path, { method: "POST" });
+                    const data = await res.json().catch(() => null);
+                    if (res.ok && data) {
+                        server.playback = { state: data.state, current_file: data.current_file, selected_device_id: data.selected_device_id };
+                        addEventLogEntry(server, "playback_action", null, path + " -> state=" + data.state, "Playback");
+                    } else if (!res.ok) {
+                        const msg = data && data.message ? data.message : "HTTP " + res.status;
+                        addEventLogEntry(server, "error", null, "Playback " + path + " gagal: " + msg, "Error");
+                    }
+                    if (server.id === activeServerId) renderPlayback();
+                } catch (err) {
+                    addEventLogEntry(server, "error", null, "Playback " + path + ": server tidak dapat dihubungi.", "Error");
+                }
+            }
+
+            async function setGlobalDevice(server, deviceId) {
+                try {
+                    const res = await fetch(baseUrl(server) + "/device", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ device_id: deviceId })
+                    });
+                    const data = await res.json().catch(() => null);
+                    if (res.ok && data) {
+                        server.playback = { state: data.state, current_file: data.current_file, selected_device_id: data.selected_device_id };
+                    }
+                    if (server.id === activeServerId) renderPlayback();
+                } catch (err) {
+                    // noop — biarkan status lama tetap tampil.
+                }
+            }
+
+            async function setZoneDevice(server, zoneName, deviceId) {
+                try {
+                    await fetch(baseUrl(server) + "/zones/" + encodeURIComponent(zoneName) + "/device", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ device_id: deviceId })
+                    });
+                    // Ambil ulang daftar zone supaya device_id yang ditampilkan pada tabel Zone konsisten.
+                    await refreshZones(server);
+                } catch (err) {
+                    // noop
+                }
+            }
+
+            function categoryForEvent(eventType) {
+                // Pengelompokan kategori Log (Phase 6) berdasarkan event WS ACTUAL
+                // (core/events.py) — tidak menambah kategori/event di luar yang nyata.
+                switch (eventType) {
+                    case "queue_changed":
+                    case "finished":
+                        return "Queue";
+                    case "speaking":
+                    case "idle":
+                    case "pause":
+                    case "resume":
+                        return "Playback";
+                    case "snapshot":
+                        return "Zone";
+                    case "ws_status":
+                        return "WebSocket";
+                    case "tts_send":
+                        return "TTS";
+                    case "error":
+                        return "Error";
+                    default:
+                        return "Error"; // event di luar kontrak yang diketahui
+                }
+            }
+
+            function addEventLogEntry(server, event, zone, detail, category) {
+                server.eventLog.push({
+                    event: event,
+                    category: category || categoryForEvent(event),
+                    zone: zone || null,
+                    time: new Date().toLocaleTimeString(),
+                    detail: detail || ""
+                });
+                if (server.eventLog.length > EVENT_LOG_MAX) {
+                    server.eventLog.shift();
+                }
+                if (server.id === activeServerId) renderEventLog();
+            }
+
+            function detailForEvent(eventType, data) {
+                // Ringkasan singkat dari payload event ACTUAL (core/events.py / queueing/
+                // playback manager) — tidak menambah field yang tidak dikirim backend.
+                switch (eventType) {
+                    case "queue_changed":
+                        return "reason=" + (data.reason || "-") +
+                            (data.item_id ? " item=" + data.item_id.slice(0, 8) : "") +
+                            (data.status ? " status=" + data.status : "");
+                    case "finished":
+                        return "reason=" + (data.reason || "-") + (data.status ? " status=" + data.status : "");
+                    case "speaking":
+                    case "idle":
+                    case "pause":
+                    case "resume":
+                        return data.file ? "file=" + data.file : "file=null";
+                    default:
+                        return "";
+                }
+            }
+
+            // Memetakan event playback (speaking/idle/pause/resume) ke PlaybackState
+            // (idle/playing/paused) sesuai semantik pada playback/manager.py —
+            // langsung mengikuti perilaku backend, bukan tebakan bebas.
+            function playbackStateForEvent(eventType) {
+                switch (eventType) {
+                    case "speaking":
+                    case "resume":
+                        return "playing";
+                    case "pause":
+                        return "paused";
+                    case "idle":
+                        return "idle";
+                    default:
+                        return null;
+                }
+            }
+
+            function applyEventToZone(server, eventType, data) {
+                const zoneName = data.zone;
+                if (!zoneName) return;
+                const zone = server.zones.find((z) => z.name === zoneName);
+                if (!zone) return;
+
+                if (["speaking", "idle", "pause", "resume"].includes(eventType)) {
+                    const newState = playbackStateForEvent(eventType);
+                    if (newState) zone.playback_state = newState;
+                    if (Object.prototype.hasOwnProperty.call(data, "file")) {
+                        zone.current_file = data.file;
+                    }
+                }
+            }
+
+            // ---------------------------------------------------------------------
+            // WebSocket — connect / reconnect aman / disconnect (Phase 3)
+            // ---------------------------------------------------------------------
+            function openWebSocket(server) {
+                // Guard: cegah koneksi WebSocket ganda untuk server yang sama.
+                if (server.ws && (server.ws.readyState === WebSocket.OPEN || server.ws.readyState === WebSocket.CONNECTING)) {
+                    return;
+                }
+                // Batalkan reconnect timer lama (jika ada) yang mungkin masih tertunda
+                // dari siklus reconnect sebelumnya — mencegah percobaan reconnect basi
+                // menumpuk saat user menekan Connect secara manual.
+                clearTimeout(server.reconnectTimer);
+                server.reconnectTimer = null;
+
+                server.wsManualClose = false;
+                server.wsStatus = server.reconnectAttempts > 0 ? "reconnecting" : "connecting";
+                addEventLogEntry(server, "ws_status", null, "status=" + server.wsStatus);
+                if (server.id === activeServerId) renderActiveBanner();
+
+                let socket;
+                try {
+                    socket = new WebSocket(wsUrl(server));
+                } catch (err) {
+                    scheduleReconnect(server);
+                    return;
+                }
+                server.ws = socket;
+
+                socket.onopen = () => {
+                    server.wsStatus = "connected";
+                    server.reconnectAttempts = 0;
+                    addEventLogEntry(server, "ws_status", null, "status=connected");
+                    if (server.id === activeServerId) renderActiveBanner();
+                    // Refresh Zone setelah WebSocket berhasil terhubung (di luar snapshot
+                    // awal yang juga akan segera dikirim server) — memastikan data zone
+                    // konsisten dengan endpoint REST aktual, lalu pilih zone default.
+                    refreshZones(server);
+                    refreshDevices(server);
+                    refreshHistory(server);
+                    refreshStatusMetrics(server);
+                    refreshSchedules(server);
+                    startMetricsAutoRefresh(server);
+                };
+
+                socket.onmessage = (msg) => {
+                    let payload;
+                    try {
+                        payload = JSON.parse(msg.data);
+                    } catch (err) {
+                        return; // pesan tidak valid, abaikan (jangan mengarang data)
+                    }
+                    const eventType = payload.event;
+                    const data = payload.data || {};
+                    if (!KNOWN_WS_EVENTS.has(eventType)) {
+                        // Event di luar kontrak Phase 9 yang diketahui — dicatat apa
+                        // adanya tanpa interpretasi tambahan.
+                        addEventLogEntry(server, eventType || "unknown", data.zone, "");
+                        return;
+                    }
+
+                    if (eventType === "snapshot") {
+                        if (Array.isArray(data.zones)) {
+                            server.zones = data.zones;
+                            server.zonesLoaded = true;
+                        }
+                        addEventLogEntry(server, "snapshot", null, (data.zones ? data.zones.length : 0) + " zone");
+                        if (server.id === activeServerId) renderZones();
+                        return;
+                    }
+
+                    // Event realtime lain: queue_changed, speaking, idle, pause, resume, finished
+                    applyEventToZone(server, eventType, data);
+                    addEventLogEntry(server, eventType, data.zone, detailForEvent(eventType, data));
+
+                    // Untuk perubahan yang memengaruhi jumlah pending/processing (queue_changed,
+                    // finished), lakukan refresh reaktif via GET /zones (bukan polling interval)
+                    // supaya angka tetap akurat mengikuti sumber kebenaran REST API.
+                    if (eventType === "queue_changed" || eventType === "finished") {
+                        refreshZones(server);
+                        if (eventType === "finished" && el.historyAutoRefresh.checked) {
+                            refreshHistory(server);
+                        }
+                    } else if (server.id === activeServerId) {
+                        renderZones();
+                    }
+                };
+
+                socket.onerror = () => {
+                    // Penanganan error diserahkan ke handler onclose (yang akan dipanggil
+                    // browser setelah error pada WebSocket), untuk menghindari logika
+                    // reconnect ganda.
+                };
+
+                socket.onclose = () => {
+                    server.ws = null;
+                    if (server.wsManualClose) {
+                        server.wsStatus = "disconnected";
+                        addEventLogEntry(server, "ws_status", null, "status=disconnected (manual)");
+                        if (server.id === activeServerId) renderActiveBanner();
+                        return;
+                    }
+                    // Reconnect aman hanya jika server ini MASIH menjadi server aktif —
+                    // mencegah reconnect menumpuk untuk server yang sudah ditinggalkan.
+                    if (server.id === activeServerId) {
+                        scheduleReconnect(server);
+                    } else {
+                        server.wsStatus = "disconnected";
+                    }
+                };
+            }
+
+            function scheduleReconnect(server) {
+                server.wsStatus = "reconnecting";
+                if (server.id === activeServerId) renderActiveBanner();
+                const delay = Math.min(WS_RECONNECT_BASE_MS * Math.pow(2, server.reconnectAttempts), WS_RECONNECT_MAX_MS);
+                server.reconnectAttempts += 1;
+                clearTimeout(server.reconnectTimer);
+                server.reconnectTimer = setTimeout(() => {
+                    // Batalkan jika server ini sudah bukan lagi server aktif (user sudah berpindah).
+                    if (server.id !== activeServerId) return;
+                    openWebSocket(server);
+                }, delay);
+            }
+
+            function closeWebSocket(server) {
+                clearTimeout(server.reconnectTimer);
+                server.reconnectTimer = null;
+                server.reconnectAttempts = 0;
+                server.wsManualClose = true;
+                if (server.ws) {
+                    try { server.ws.close(); } catch (err) { /* noop */ }
+                }
+                server.ws = null;
+                server.wsStatus = "disconnected";
+            }
+
+            function resetServerRuntimeState(server) {
+                // Dipanggil saat berpindah/disconnect server — memastikan data server
+                // sebelumnya tidak tercampur dengan server berikutnya (Aturan Global #16).
+                server.httpStatus = "unknown";
+                server.lastChecked = null;
+                server.lastError = null;
+                server.zones = [];
+                server.zonesLoaded = false;
+                server.eventLog = [];
+                server.activeZoneName = null;
+                server.devices = [];
+                server.devicesLoaded = false;
+                server.playback = { state: null, current_file: null, selected_device_id: null };
+                server.queue = { items: [], loaded: false, loading: false, error: null, statusFilter: server.queue ? server.queue.statusFilter : "" };
+                server.history = { items: [], loaded: false, loading: false, error: null, zoneFilter: "", statusFilter: "", limit: server.history ? server.history.limit : 50 };
+                server.statusMetrics = { status: null, metrics: null, loading: false, error: null };
+                server.scheduler = { items: [], loaded: false, loading: false, error: null };
+            }
+
+            // ---------------------------------------------------------------------
+            // Connect / Disconnect (Phase 2 diperluas dengan WebSocket Phase 3)
+            // ---------------------------------------------------------------------
+            async function connectToSelected() {
+                const selectedId = el.serverSelect.value;
+                if (!selectedId) return;
+
+                stopHealthPolling();
+                stopMetricsAutoRefresh();
+
+                // Berpindah server: tutup WebSocket server sebelumnya, hentikan
+                // reconnect-nya, dan bersihkan seluruh state/data server sebelumnya
+                // sebelum menghubungkan ke server baru.
+                if (activeServerId && activeServerId !== selectedId) {
+                    const prev = getServerById(activeServerId);
+                    if (prev) {
+                        closeWebSocket(prev);
+                        resetServerRuntimeState(prev);
+                    }
+                }
+
+                activeServerId = selectedId;
+                const target = getServerById(activeServerId);
+                if (!target) return;
+
+                renderAll();
+                await checkHealth(target);
+                startHealthPolling(target);
+                openWebSocket(target);
+            }
+
+            function disconnect() {
+                stopHealthPolling();
+                stopMetricsAutoRefresh();
+                const active = getServerById(activeServerId);
+                if (active) {
+                    closeWebSocket(active);
+                    resetServerRuntimeState(active);
+                }
+                activeServerId = null;
+                renderAll();
+            }
+
+            // ---------------------------------------------------------------------
+            // Manajemen daftar server (Phase 2, dipertahankan)
+            // ---------------------------------------------------------------------
+            function addServer() {
+                const label = el.newLabel.value.trim();
+                const host = el.newHost.value.trim();
+                const port = parseInt(el.newPort.value, 10);
+
+                if (!label || !host || !port || Number.isNaN(port)) {
+                    alert("Label, Host/IP, dan Port wajib diisi dengan benar.");
+                    return;
+                }
+
+                servers.push(makeServerState({ label, host, port }, servers.length));
+                saveServerConfigs();
+                el.newLabel.value = "";
+                el.newHost.value = "";
+                el.newPort.value = "8000";
+                renderAll();
+            }
+
+            function removeServer(id) {
+                if (id === activeServerId) {
+                    disconnect();
+                } else {
+                    const s = getServerById(id);
+                    if (s) closeWebSocket(s);
+                }
+                servers = servers.filter((s) => s.id !== id);
+                saveServerConfigs();
+                renderAll();
+            }
+
+            // ---------------------------------------------------------------------
+            // Event bindings
+            // ---------------------------------------------------------------------
+            el.btnConnect.addEventListener("click", connectToSelected);
+            el.btnDisconnect.addEventListener("click", disconnect);
+            el.btnAddServer.addEventListener("click", addServer);
+            el.btnRefreshZones.addEventListener("click", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (active) refreshZones(active);
+            });
+            el.btnClearEvents.addEventListener("click", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (active) {
+                    active.eventLog = [];
+                    renderEventLog();
+                }
+            });
+
+            // --- Phase 4: Zone selector, device, TTS, Playback ---
+            el.activeZoneSelect.addEventListener("change", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (active) {
+                    active.activeZoneName = el.activeZoneSelect.value || null;
+                    renderZones();
+                    refreshQueue(active);
+                }
+            });
+
+            el.btnSetZoneDevice.addEventListener("click", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (!active) return;
+                const zoneName = active.activeZoneName;
+                const deviceId = parseInt(el.zoneDeviceSelect.value, 10);
+                if (!zoneName || Number.isNaN(deviceId)) return;
+                setZoneDevice(active, zoneName, deviceId);
+            });
+
+            el.btnSpeak.addEventListener("click", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (active) sendSpeak(active);
+            });
+
+            el.btnClearTts.addEventListener("click", clearTtsForm);
+
+            el.btnPause.addEventListener("click", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (active) callPlaybackEndpoint(active, "/pause");
+            });
+            el.btnResume.addEventListener("click", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (active) callPlaybackEndpoint(active, "/resume");
+            });
+            el.btnStop.addEventListener("click", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (active) callPlaybackEndpoint(active, "/stop");
+            });
+            el.btnSetGlobalDevice.addEventListener("click", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                const deviceId = parseInt(el.globalDeviceSelect.value, 10);
+                if (active && !Number.isNaN(deviceId)) setGlobalDevice(active, deviceId);
+            });
+            el.btnRefreshDevices.addEventListener("click", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (active) refreshDevices(active);
+            });
+
+            // --- Phase 5: Queue, History, Status & Metrics ---
+            el.btnRefreshQueue.addEventListener("click", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (active) refreshQueue(active);
+            });
+            el.queueStatusFilter.addEventListener("change", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (active) {
+                    active.queue.statusFilter = el.queueStatusFilter.value;
+                    refreshQueue(active);
+                }
+            });
+
+            function applyHistoryFiltersFromInputs(server) {
+                server.history.zoneFilter = el.historyZoneFilter.value;
+                server.history.statusFilter = el.historyStatusFilter.value;
+                const limit = parseInt(el.historyLimit.value, 10);
+                server.history.limit = Number.isNaN(limit) ? 50 : Math.min(Math.max(limit, 1), 1000);
+            }
+
+            el.btnRefreshHistory.addEventListener("click", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (active) {
+                    applyHistoryFiltersFromInputs(active);
+                    refreshHistory(active);
+                }
+            });
+            [el.historyZoneFilter, el.historyStatusFilter, el.historyLimit].forEach((inputEl) => {
+                inputEl.addEventListener("change", () => {
+                    const active = activeServerId ? getServerById(activeServerId) : null;
+                    if (active) {
+                        applyHistoryFiltersFromInputs(active);
+                        refreshHistory(active);
+                    }
+                });
+            });
+
+            el.btnRefreshMetrics.addEventListener("click", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (active) refreshStatusMetrics(active);
+            });
+            el.autoRefreshMetrics.addEventListener("change", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (!active) return;
+                if (el.autoRefreshMetrics.checked) {
+                    startMetricsAutoRefresh(active);
+                } else {
+                    stopMetricsAutoRefresh();
+                }
+            });
+
+            el.btnCleanupCache.addEventListener("click", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (active) cleanupCache(active);
+            });
+
+            // --- Phase 6: Scheduler ---
+            function updateSchedulerRecurrenceRows() {
+                const rec = el.schRecurrence.value;
+                el.schWeeklyRow.style.display = rec === "weekly" ? "flex" : "none";
+                el.schOnceRow.style.display = rec === "once" ? "flex" : "none";
+            }
+            el.schRecurrence.addEventListener("change", updateSchedulerRecurrenceRows);
+
+            el.btnRefreshSchedules.addEventListener("click", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (active) refreshSchedules(active);
+            });
+
+            el.btnCreateSchedule.addEventListener("click", () => {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (!active) return;
+
+                const name = el.schName.value.trim();
+                const zone = el.schZone.value;
+                const recurrence = el.schRecurrence.value;
+                const timeOfDay = el.schTimeOfDay.value;
+                const type = el.schType.value;
+                const text = el.schText.value.trim();
+                const priority = el.schPriority.value;
+
+                if (!name || !timeOfDay || !text) {
+                    el.schResult.textContent = "Nama, Time of day, dan Text/File wajib diisi.";
+                    el.schResult.className = "status-text offline";
+                    return;
+                }
+
+                const payload = {
+                    name: name,
+                    enabled: true,
+                    zone: zone,
+                    recurrence: recurrence,
+                    time_of_day: timeOfDay,
+                    announcement: type === "tts"
+                        ? { type: "tts", text: text, priority: priority }
+                        : { type: "audio", file: text, priority: priority }
+                };
+
+                if (recurrence === "weekly") {
+                    const days = Array.from(document.querySelectorAll(".schDow:checked")).map((cb) => parseInt(cb.value, 10));
+                    if (days.length === 0) {
+                        el.schResult.textContent = "Pilih minimal 1 hari untuk recurrence weekly.";
+                        el.schResult.className = "status-text offline";
+                        return;
+                    }
+                    payload.days_of_week = days;
+                } else if (recurrence === "once") {
+                    if (!el.schRunDate.value) {
+                        el.schResult.textContent = "Run date wajib diisi untuk recurrence once.";
+                        el.schResult.className = "status-text offline";
+                        return;
+                    }
+                    payload.run_date = el.schRunDate.value;
+                }
+
+                createSchedule(active, payload);
+            });
+
+            // --- Phase 6: Log ---
+            el.logCategoryFilter.addEventListener("change", renderEventLog);
+            el.logAutoScroll.addEventListener("change", renderEventLog);
+
+            // Init
+            el.ttsVoice.value = DEFAULT_TTS_VOICE;
+            updateSchedulerRecurrenceRows();
+            renderAll();
+        })();
+    </script>
+
+</body>
+
+</html>
