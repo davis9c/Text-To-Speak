@@ -25,6 +25,8 @@ from starlette.middleware.gzip import GZipMiddleware
 
 from announcement_server import __version__
 from announcement_server.announcement.asset_resolver import AudioAssetResolver
+from announcement_server.announcement.chime_catalog import ChimeCatalog
+from announcement_server.api.v1.chimes import router as chimes_router
 from announcement_server.api.v1.dashboard import router as dashboard_router
 from announcement_server.api.v1.health import router as health_router
 from announcement_server.api.v1.maintenance import router as maintenance_router
@@ -133,6 +135,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # announcement/asset_resolver.py).
     asset_resolver = AudioAssetResolver(settings.announcement)
     app.state.asset_resolver = asset_resolver
+
+    # Chime Discovery: ChimeCatalog dibangun sekali dan di-share oleh seluruh
+    # router. Murni read-only (scan announcement.chime_dir per-request) —
+    # aman dibangun kapan pun karena konstruksinya TIDAK menyentuh filesystem
+    # (mirip dengan VoiceRegistry: direktori kosong/tidak ada = daftar kosong,
+    # bukan error startup).
+    chime_catalog = ChimeCatalog(settings.announcement)
+    app.state.chime_catalog = chime_catalog
 
     # Cache Cleanup (Phase 14): opsional, dikontrol lewat
     # maintenance.cache_cleanup_on_startup. Kegagalan cleanup TIDAK BOLEH
@@ -381,6 +391,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     app.include_router(zones_router)
     app.include_router(scheduler_router)
     app.include_router(tts_router)
+    app.include_router(chimes_router)
     app.include_router(websocket_router)
     app.include_router(dashboard_router)
     app.include_router(maintenance_router)

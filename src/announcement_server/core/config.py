@@ -235,6 +235,12 @@ class AnnouncementConfig(BaseModel):
         "POST /speak (`file`) SELALU relatif terhadap direktori ini — request tidak dapat "
         "mengakses file di luar direktori ini (dicegah lewat validasi path).",
     )
+    chime_dir: str = Field(
+        default="sounds/chime",
+        description="Direktori khusus berisi file audio chime (diputar sebelum pengumuman). "
+        "Di-scan oleh ChimeCatalog (GET /chimes) untuk dropdown pemilihan chime. Nilai `file` "
+        "pada tiap chime tetap relatif terhadap `sounds_dir` agar kompatibel dengan resolver audio.",
+    )
     ffmpeg_binary_path: str = Field(
         default="ffmpeg",
         description="Path ke executable ffmpeg, atau cukup 'ffmpeg' jika sudah ada di PATH sistem. "

@@ -68,6 +68,7 @@ queue:
 # degradation, sama seperti Piper) — lihat bagian "Setup ffmpeg" README.
 announcement:
   sounds_dir: "sounds"                          # Direktori file audio statis (bell/alarm/jingle/dst)
+  chime_dir: "sounds/chime"                     # Folder KHUSUS chime — di-scan oleh GET /chimes (dropdown)
   ffmpeg_binary_path: "ffmpeg"                   # Path ke executable ffmpeg, atau "ffmpeg" jika sudah ada di PATH
   converted_cache_dir: "cache/announcement_audio" # Cache hasil konversi ffmpeg ke WAV
   conversion_timeout_seconds: 30.0               # Timeout konversi ffmpeg per file
