@@ -32,6 +32,10 @@ router = APIRouter(prefix="/maintenance", tags=["Maintenance"])
 async def cleanup_cache(
     payload: CacheCleanupRequest, tts_service: TTSServiceDep, asset_resolver: AssetResolverDep
 ) -> CacheCleanupResponse:
+    """Menghapus file cache TTS & Announcement Engine yang lebih tua dari batas usia yang dikonfigurasi.
+
+    Field yang null pada ``payload`` berarti tidak ada file yang dihapus untuk cache tersebut.
+    """
     tts_deleted, tts_freed = await tts_service.cleanup_cache(max_age_days=payload.tts_max_age_days)
     announcement_deleted, announcement_freed = await asset_resolver.cleanup_cache(
         max_age_days=payload.announcement_max_age_days

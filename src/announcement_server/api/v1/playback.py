@@ -26,6 +26,7 @@ router = APIRouter(tags=["Playback"])
 
 
 def _status_response(playback_manager: PlaybackManagerDep) -> PlaybackStatusResponse:
+    """Membangun respons status playback dari state PlaybackManager saat ini."""
     return PlaybackStatusResponse(
         state=playback_manager.state,
         current_file=playback_manager.current_file,
@@ -40,6 +41,7 @@ def _status_response(playback_manager: PlaybackManagerDep) -> PlaybackStatusResp
     description="Menampilkan seluruh output device yang dikenali Windows (speaker, headphone, sound card TOA, dsb).",
 )
 async def get_devices(device_manager: AudioDeviceManagerDep) -> DeviceListResponse:
+    """Menampilkan seluruh output audio device yang dikenali Windows (speaker, headphone, sound card TOA, dsb)."""
     devices = device_manager.list_output_devices()
     return DeviceListResponse(
         # `AudioDevice` (playback/models.py) sengaja didefinisikan sebagai
@@ -59,6 +61,7 @@ async def get_devices(device_manager: AudioDeviceManagerDep) -> DeviceListRespon
     description="ID device diambil dari hasil GET /devices. Tidak menghentikan playback yang sedang berjalan.",
 )
 async def select_device(payload: SelectDeviceRequest, playback_manager: PlaybackManagerDep) -> PlaybackStatusResponse:
+    """Memilih output device aktif untuk playback (tidak menghentikan playback yang sedang berjalan)."""
     playback_manager.select_device(payload.device_id)
     return _status_response(playback_manager)
 
@@ -70,6 +73,7 @@ async def select_device(payload: SelectDeviceRequest, playback_manager: Playback
     description="Mengembalikan error 409 jika tidak sedang ada playback yang berjalan (state != playing).",
 )
 async def pause_playback(playback_manager: PlaybackManagerDep) -> PlaybackStatusResponse:
+    """Menjeda playback yang sedang berjalan; error 409 jika tidak sedang playing."""
     playback_manager.pause()
     return _status_response(playback_manager)
 
@@ -81,6 +85,7 @@ async def pause_playback(playback_manager: PlaybackManagerDep) -> PlaybackStatus
     description="Mengembalikan error 409 jika tidak sedang dijeda (state != paused).",
 )
 async def resume_playback(playback_manager: PlaybackManagerDep) -> PlaybackStatusResponse:
+    """Melanjutkan playback yang sedang dijeda; error 409 jika tidak sedang paused."""
     playback_manager.resume()
     return _status_response(playback_manager)
 
@@ -93,5 +98,6 @@ async def resume_playback(playback_manager: PlaybackManagerDep) -> PlaybackStatu
     status_code=status.HTTP_200_OK,
 )
 async def stop_playback(playback_manager: PlaybackManagerDep) -> PlaybackStatusResponse:
+    """Menghentikan playback sepenuhnya; idempotent — aman dipanggil walau tidak ada playback yang berjalan."""
     await playback_manager.stop()
     return _status_response(playback_manager)

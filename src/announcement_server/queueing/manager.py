@@ -87,6 +87,7 @@ _PRIORITY_WEIGHT: dict[QueuePriority, int] = {
 
 
 def _utcnow() -> datetime:
+    """Timestamp UTC saat ini — helper kecil agar pemakaian timezone konsisten di seluruh kelas."""
     return datetime.now(timezone.utc)
 
 
@@ -105,6 +106,7 @@ class QueueManager:
     """Mengelola antrean pengumuman: enqueue, dequeue, cancel, list, clear."""
 
     def __init__(self, max_size: int = 100, max_history: int = 1000, *, on_event: EventPublisher = noop_event_publisher) -> None:
+        """Menginisialisasi registry, priority queue (unbounded), lock, serta batas antrean & riwayat."""
         # Tuple berisi (bobot_priority, sequence, item_id_str).
         # `sequence` (counter monotonic) menjamin urutan FIFO untuk item
         # dengan priority sama, sekaligus mencegah Python mencoba
@@ -121,6 +123,7 @@ class QueueManager:
 
     @property
     def max_size(self) -> int:
+        """Kapasitas maksimum item PENDING pada antrean ini."""
         return self._max_size
 
     async def enqueue(
@@ -286,6 +289,7 @@ class QueueManager:
         return [i.model_copy() for i in items]
 
     async def get_item(self, item_id: uuid.UUID) -> QueueItem:
+        """Mengembalikan salinan item dari registry. Melempar QueueItemNotFoundError jika tidak ada."""
         async with self._lock:
             item = self._registry.get(item_id)
         if item is None:

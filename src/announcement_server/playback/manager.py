@@ -76,9 +76,24 @@ logger = logging.getLogger(__name__)
 
 
 class OutputStreamProtocol(Protocol):
-    def start(self) -> None: ...
-    def stop(self) -> None: ...
-    def close(self) -> None: ...
+    """Kontrak minimal stream output audio (dipenuhi ``sounddevice.OutputStream``).
+
+    ``start()`` memulai aliran audio, ``stop()`` menghentikannya (stream tetap
+    bisa dipakai), ``close()`` menutup & membebaskan resource — implementasi
+    fake di unit test harus menyediakan ketiganya.
+    """
+
+    def start(self) -> None:
+        """Kontrak: memulai aliran audio (callback PortAudio mulai dipanggil)."""
+        ...
+
+    def stop(self) -> None:
+        """Kontrak: menghentikan aliran audio; stream tetap bisa di-``start`` ulang."""
+        ...
+
+    def close(self) -> None:
+        """Kontrak: menutup stream & membebaskan resource; stream tidak bisa dipakai lagi."""
+        ...
 
 
 class SoundDeviceModule(Protocol):
@@ -86,10 +101,17 @@ class SoundDeviceModule(Protocol):
 
     CallbackStop: type[Exception]
 
-    def OutputStream(self, **kwargs: Any) -> OutputStreamProtocol: ...  # noqa: N802 - nama API sounddevice asli
+    def OutputStream(self, **kwargs: Any) -> OutputStreamProtocol:
+        """Kontrak: membangun stream output audio baru (memenuhi ``OutputStreamProtocol``).
+
+        Menerima parameter PortAudio (``samplerate``/``channels``/``dtype``/
+        ``device``/``callback``) via ``**kwargs``.
+        """
+        ...  # noqa: N802 - nama API sounddevice asli
 
 
 def _default_sounddevice_module() -> SoundDeviceModule:
+    """Lazy-import ``sounddevice`` asli — baru dijalankan jika modul tidak di-inject."""
     import sounddevice as sd  # import lokal: baru dibutuhkan saat benar-benar dipakai di Windows
 
     return sd
@@ -105,6 +127,11 @@ class PlaybackManager:
         *,
         on_event: EventPublisher = noop_event_publisher,
     ) -> None:
+        """Menyimpan device manager & modul sounddevice, serta menginisialisasi state playback IDLE.
+
+        ``sd_module=None`` (default) memakai ``sounddevice`` asli lewat
+        lazy-import; ``on_event`` opsional untuk event WebSocket (Phase 9).
+        """
         self._device_manager = device_manager
         self._sd = sd_module if sd_module is not None else _default_sounddevice_module()
         self._on_event = on_event
@@ -141,16 +168,19 @@ class PlaybackManager:
 
     @property
     def state(self) -> PlaybackState:
+        """State playback saat ini (idle/playing/paused), aman dibaca dari thread mana pun."""
         with self._lock:
             return self._state
 
     @property
     def current_file(self) -> str | None:
+        """Path file audio yang sedang/terakhir diputar; None jika tidak ada playback aktif."""
         with self._lock:
             return self._current_file
 
     @property
     def selected_device_id(self) -> int | None:
+        """ID output device yang sedang dipilih untuk playback; None jika belum ada pilihan."""
         return self._selected_device_id
 
     def _schedule_event(self, event_type: str, data: dict) -> None:
@@ -241,6 +271,13 @@ class PlaybackManager:
     # --- Internal --------------------------------------------------------------
 
     def _start_stream(self, frames: np.ndarray, channels: int, samplerate: int, file_path: str) -> None:
+        """Membuka ``sounddevice.OutputStream`` dengan callback dan memulai playback dari awal.
+
+        Menjalankan sinkron (via ``asyncio.to_thread`` dari ``play()``):
+        menghentikan stream lama, menyimpan frame & posisi, lalu membuka
+        stream pada ``selected_device_id``. Melempar ``PlaybackDeviceError``
+        jika PortAudio/driver gagal membuka device.
+        """
         self._stop_stream()  # pastikan tidak ada stream lain yang masih aktif
 
         with self._lock:
@@ -251,6 +288,12 @@ class PlaybackManager:
             self._finished_event.clear()
 
         def callback(outdata: np.ndarray, frame_count: int, time_info: Any, status: Any) -> None:
+            """Callback PortAudio (thread native): mengisi buffer output dari frame yang tersisa.
+
+            PAUSED/IDLE -> kirim silence tanpa memajukan posisi; frame habis
+            -> set IDLE + ``_finished_event``, emit event IDLE, lalu
+            ``CallbackStop``. Status non-null hanya di-log sebagai warning.
+            """
             if status:
                 logger.warning("Status stream audio tidak normal: %s", status)
             with self._lock:
@@ -290,6 +333,12 @@ class PlaybackManager:
             self._stream = stream
 
     def _stop_stream(self) -> None:
+        """Menghentikan stream audio saat ini dan mengembalikan state ke IDLE (idempotent).
+
+        Melepas frame/posisi/current_file, men-set ``_finished_event``
+        (membebaskan ``wait_until_finished()``), menutup stream, dan emit
+        event IDLE hanya jika sebelumnya ada playback aktif.
+        """
         with self._lock:
             was_active = self._state != PlaybackState.IDLE
             stream = self._stream
@@ -318,6 +367,11 @@ class PlaybackManager:
 
     @staticmethod
     def _load_wav(path: Path) -> tuple[np.ndarray, int, int]:
+        """Membaca file WAV 16-bit PCM menjadi ``(frames, channels, samplerate)``.
+
+        Melempar ``PlaybackDeviceError`` untuk format WAV yang tidak
+        didukung (bukan 16-bit). Dijalankan via ``asyncio.to_thread``.
+        """
         with wave.open(str(path), "rb") as reader:
             channels = reader.getnchannels()
             samplerate = reader.getframerate()

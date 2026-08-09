@@ -48,6 +48,7 @@ def _require_known_engine(engine: str, tts_service: TTSServiceDep) -> None:
     "Sumber data: TTSEngineManager -- engine baru yang diregistrasikan di masa depan otomatis muncul di sini.",
 )
 async def list_engines(tts_service: TTSServiceDep) -> EngineListResponse:
+    """Menampilkan seluruh TTS engine yang terdaftar beserta engine default."""
     engine_manager = tts_service.engine_manager
     engines = [
         EngineInfo(
@@ -77,6 +78,7 @@ async def list_engines(tts_service: TTSServiceDep) -> EngineListResponse:
     "Registry kosong (mis. belum ada voice model Piper terpasang) menghasilkan `voices: []`, bukan error.",
 )
 async def list_all_voices(voice_registry: VoiceRegistryDep) -> VoiceListResponse:
+    """Menampilkan seluruh voice lintas seluruh engine yang terdaftar; registry kosong menghasilkan ``voices: []``."""
     voices = [VoiceInfo.from_voice_profile(profile) for profile in voice_registry.list_all()]
     return VoiceListResponse(voices=voices, count=len(voices))
 
@@ -90,6 +92,7 @@ async def list_all_voices(voice_registry: VoiceRegistryDep) -> VoiceListResponse
     "membedakan 'engine tidak dikenal' dari 'engine dikenal tapi belum ada voice'.",
 )
 async def list_voices_by_engine(engine: str, tts_service: TTSServiceDep, voice_registry: VoiceRegistryDep) -> VoiceListResponse:
+    """Menampilkan seluruh voice milik satu engine; 503 (TTSEngineNotAvailableError) jika engine tidak dikenal."""
     _require_known_engine(engine, tts_service)
     voices = [VoiceInfo.from_voice_profile(profile) for profile in voice_registry.list_by_engine(engine)]
     return VoiceListResponse(voices=voices, count=len(voices))
@@ -105,6 +108,7 @@ async def list_voices_by_engine(engine: str, tts_service: TTSServiceDep, voice_r
 async def get_voice_detail(
     engine: str, voice_id: str, tts_service: TTSServiceDep, voice_registry: VoiceRegistryDep
 ) -> VoiceInfo:
+    """Menampilkan detail satu voice berdasarkan ``engine`` + ``voice_id``; 503 jika engine tidak dikenal, 404 jika voice tidak ditemukan."""
     _require_known_engine(engine, tts_service)
     voice = voice_registry.get(engine, voice_id)
     if voice is None:

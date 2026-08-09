@@ -66,6 +66,7 @@ class ChimeCatalog:
     """
 
     def __init__(self, config: AnnouncementConfig) -> None:
+        """Menyimpan direktori chime & sounds dari ``AnnouncementConfig`` (murni, tanpa I/O)."""
         self._chime_dir = Path(config.chime_dir)
         self._sounds_dir = Path(config.sounds_dir)
 
@@ -81,6 +82,7 @@ class ChimeCatalog:
         return next((chime for chime in await self.list() if chime.is_default), None)
 
     def _list_sync(self) -> list[ChimeProfile]:
+        """Versi sinkron scan direktori chime (dijalankan via ``asyncio.to_thread`` oleh ``list()``)."""
         if not self._chime_dir.is_dir():
             logger.debug("Direktori chime '%s' belum ada; daftar chime kosong.", self._chime_dir)
             return []

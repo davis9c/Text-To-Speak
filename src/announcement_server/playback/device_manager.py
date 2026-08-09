@@ -35,10 +35,19 @@ class SoundDeviceModule(Protocol):
 
     default: Any
 
-    def query_devices(self) -> list[dict[str, Any]]: ...
+    def query_devices(self) -> list[dict[str, Any]]:
+        """Kontrak: enumerasi seluruh device audio PortAudio.
+
+        Dipanggil tanpa argumen oleh ``AudioDeviceManager`` dan harus
+        mengembalikan daftar dict yang masing-masing memuat minimal
+        ``name``/``max_output_channels``/``default_samplerate`` — dipenuhi
+        oleh ``sounddevice`` asli maupun fake module di unit test.
+        """
+        ...
 
 
 def _default_sounddevice_module() -> SoundDeviceModule:
+    """Lazy-import ``sounddevice`` asli — baru dijalankan jika modul tidak di-inject."""
     import sounddevice as sd  # import lokal: baru dibutuhkan saat benar-benar dipakai di Windows
 
     return sd
@@ -48,6 +57,7 @@ class AudioDeviceManager:
     """Enumerasi & validasi output audio device pada sistem."""
 
     def __init__(self, sd_module: SoundDeviceModule | None = None) -> None:
+        """Menyimpan modul sounddevice; jika ``None``, lazy-import modul asli saat konstruksi."""
         self._sd = sd_module if sd_module is not None else _default_sounddevice_module()
 
     def list_output_devices(self) -> list[AudioDevice]:
@@ -85,6 +95,11 @@ class AudioDeviceManager:
         self.get_device(device_id)
 
     def _get_default_output_index(self) -> int | None:
+        """Index output device default dari ``sd.default.device``; ``None`` jika gagal terdeteksi.
+
+        Menangani bentuk tuple ``(input, output)`` maupun int. Kegagalan
+        deteksi tidak boleh menghentikan enumerasi device.
+        """
         try:
             # sd.default.device biasanya berupa tuple (input_index, output_index)
             default_device = self._sd.default.device

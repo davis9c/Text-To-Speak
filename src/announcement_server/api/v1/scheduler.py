@@ -60,6 +60,7 @@ def _to_announcement_spec(payload) -> AnnouncementSpec:  # noqa: ANN001 - payloa
     description="Mengembalikan seluruh jadwal yang terdaftar di server ini beserta status `enabled` dan `next_run_at` masing-masing.",
 )
 async def list_schedules(scheduler_manager: SchedulerManagerDep) -> ScheduleListResponse:
+    """Menampilkan seluruh jadwal yang terdaftar beserta status ``enabled`` dan ``next_run_at`` masing-masing."""
     schedules = scheduler_manager.list_schedules()
     responses = [ScheduleResponse.model_validate(entry) for entry in schedules]
     return ScheduleListResponse(schedules=responses, count=len(responses))
@@ -76,6 +77,10 @@ async def list_schedules(scheduler_manager: SchedulerManagerDep) -> ScheduleList
     ),
 )
 async def create_schedule(payload: ScheduleCreateRequest, scheduler_manager: SchedulerManagerDep) -> ScheduleResponse:
+    """Mendaftarkan jadwal pemicu pengumuman otomatis baru (daily/weekly/once).
+
+    Mengembalikan 422 jika konfigurasi tidak valid atau tidak akan pernah terpicu.
+    """
     entry = await scheduler_manager.create_schedule(
         name=payload.name,
         enabled=payload.enabled,
@@ -96,6 +101,7 @@ async def create_schedule(payload: ScheduleCreateRequest, scheduler_manager: Sch
     description="Mengembalikan detail satu jadwal berdasarkan id. Mengembalikan 404 jika jadwal tidak ditemukan.",
 )
 async def get_schedule(schedule_id: uuid.UUID, scheduler_manager: SchedulerManagerDep) -> ScheduleResponse:
+    """Menampilkan detail satu jadwal berdasarkan id; 404 jika tidak ditemukan."""
     entry = scheduler_manager.get_schedule(schedule_id)
     return ScheduleResponse.model_validate(entry)
 
@@ -109,6 +115,7 @@ async def get_schedule(schedule_id: uuid.UUID, scheduler_manager: SchedulerManag
 async def update_schedule(
     schedule_id: uuid.UUID, payload: ScheduleUpdateRequest, scheduler_manager: SchedulerManagerDep
 ) -> ScheduleResponse:
+    """Memperbarui jadwal secara parsial — hanya field yang dikirim pada body yang diubah; 404 jika tidak ditemukan."""
     update_kwargs = payload.model_dump(exclude_unset=True, exclude={"announcement"})
     if "announcement" in payload.model_fields_set and payload.announcement is not None:
         update_kwargs["announcement"] = _to_announcement_spec(payload.announcement)
@@ -123,6 +130,7 @@ async def update_schedule(
     description="Menghapus jadwal secara permanen (bukan disable). Mengembalikan 404 jika jadwal tidak ditemukan.",
 )
 async def delete_schedule(schedule_id: uuid.UUID, scheduler_manager: SchedulerManagerDep) -> ScheduleDeleteResponse:
+    """Menghapus jadwal secara permanen (bukan disable); 404 jika tidak ditemukan."""
     await scheduler_manager.delete_schedule(schedule_id)
     return ScheduleDeleteResponse(id=schedule_id, deleted=True)
 
@@ -139,5 +147,6 @@ async def delete_schedule(schedule_id: uuid.UUID, scheduler_manager: SchedulerMa
     ),
 )
 async def trigger_schedule(schedule_id: uuid.UUID, scheduler_manager: SchedulerManagerDep) -> QueueItemResponse:
+    """Memicu jadwal secara manual tanpa memengaruhi ``next_run_at`` pemicu otomatis berikutnya."""
     item = await scheduler_manager.trigger_now(schedule_id)
     return QueueItemResponse.from_item(item)

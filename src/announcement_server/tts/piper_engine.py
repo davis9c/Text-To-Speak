@@ -47,6 +47,12 @@ class PiperEngine(TTSEngine):
     """Engine TTS berbasis Piper."""
 
     def __init__(self, config: TTSConfig) -> None:
+        """Inisialisasi engine: menyimpan path binary, direktori model, timeout, dan retry dari ``config``.
+
+        Tidak melempar exception walau binary belum ada (graceful degradation) --
+        kegagalan baru muncul saat sintesis benar-benar dipanggil; jika binary
+        tidak ditemukan hanya menulis warning ke log agar operator sadar sejak startup.
+        """
         self._binary_path = Path(config.piper_binary_path)
         self._models_dir = Path(config.piper_models_dir)
         self._timeout_seconds = config.generation_timeout_seconds
@@ -69,6 +75,12 @@ class PiperEngine(TTSEngine):
             )
 
     async def synthesize(self, *, text: str, voice: str, speed: float) -> bytes:
+        """Menghasilkan audio dari teks via Piper, dibungkus retry dengan backoff.
+
+        Hanya ``TTSGenerationError`` (kegagalan transien) yang di-retry;
+        ``TTSEngineNotAvailableError`` dan ``VoiceNotFoundError`` (kegagalan
+        permanen) tidak di-retry karena mengulang tidak akan mengubah hasil.
+        """
         # Retry (Phase 14) hanya untuk TTSGenerationError (kegagalan proses Piper yang
         # transien, mis. exit code non-zero sesaat) — TTSEngineNotAvailableError (binary
         # tidak ada) dan VoiceNotFoundError (model tidak ada) TIDAK di-retry karena
@@ -82,6 +94,13 @@ class PiperEngine(TTSEngine):
         )
 
     async def _synthesize_once(self, *, text: str, voice: str, speed: float) -> bytes:
+        """Eksekusi tunggal sintesis Piper (tanpa retry): subprocess asinkron, timeout, temp file.
+
+        Raises:
+            VoiceNotFoundError: Jika model ``<voice>.onnx``/``<voice>.onnx.json`` tidak ada.
+            TTSEngineNotAvailableError: Jika binary Piper tidak bisa dijalankan.
+            TTSGenerationError: Jika Piper timeout, exit code non-zero, atau file output tidak dihasilkan.
+        """
         model_path = self._models_dir / f"{voice}.onnx"
         model_config_path = self._models_dir / f"{voice}.onnx.json"
         if not model_path.exists() or not model_config_path.exists():
@@ -170,6 +189,12 @@ class PiperEngine(TTSEngine):
         return await asyncio.to_thread(self._discover_voices_sync)
 
     def _discover_voices_sync(self) -> list[VoiceProfile]:
+        """Scan sinkron ``piper_models_dir`` (dijalankan via ``asyncio.to_thread`` oleh ``list_voices``).
+
+        Memasangkan setiap ``<voice>.onnx`` dengan ``<voice>.onnx.json``; voice
+        yang config JSON-nya hilang dilaporkan ``available=False`` (konsisten
+        dengan penolakan saat sintesis).
+        """
         if not self._models_dir.exists():
             return []
 

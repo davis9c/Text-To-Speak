@@ -45,6 +45,10 @@ def _validate_announcement(spec: AnnouncementSpec) -> None:
 
 
 def _validate_recurrence(recurrence: ScheduleRecurrence, days_of_week: list[int] | None, run_date: date | None) -> None:
+    """Validasi konsistensi recurrence: 'weekly' wajib punya days_of_week valid, 'once' wajib punya run_date.
+
+    Melempar ``InvalidScheduleError`` jika konfigurasi tidak memenuhi syarat.
+    """
     if recurrence == ScheduleRecurrence.WEEKLY:
         if not days_of_week:
             raise InvalidScheduleError("`days_of_week` wajib diisi (minimal 1 hari) untuk recurrence='weekly'.")
@@ -66,6 +70,7 @@ class SchedulerManager:
         poll_interval_seconds: float = 5.0,
         tz: tzinfo | None = None,
     ) -> None:
+        """Menyimpan ZoneManager, voice default, interval polling & tz; registry jadwal dimulai kosong."""
         self._zone_manager = zone_manager
         self._default_voice = default_voice
         self._poll_interval_seconds = poll_interval_seconds
@@ -77,9 +82,11 @@ class SchedulerManager:
 
     @property
     def is_running(self) -> bool:
+        """True jika background task scheduler sedang aktif (belum selesai/batal)."""
         return self._running and self._task is not None and not self._task.done()
 
     def _now(self) -> datetime:
+        """Waktu saat ini pada zona waktu scheduler (``tz=None`` = waktu lokal sistem)."""
         return datetime.now(self._tz)
 
     # --- CRUD --------------------------------------------------------------
@@ -199,6 +206,7 @@ class SchedulerManager:
         return entry.model_copy(deep=True)
 
     async def delete_schedule(self, schedule_id: uuid.UUID) -> None:
+        """Menghapus jadwal dari registry. Melempar ScheduleNotFoundError jika tidak ada."""
         async with self._lock:
             entry = self._schedules.pop(schedule_id, None)
         if entry is None:
@@ -208,12 +216,14 @@ class SchedulerManager:
     # --- Lookup --------------------------------------------------------------
 
     def get_schedule(self, schedule_id: uuid.UUID) -> ScheduleEntry:
+        """Mengembalikan salinan mendalam satu jadwal. Melempar ScheduleNotFoundError jika tidak ada."""
         entry = self._schedules.get(schedule_id)
         if entry is None:
             raise ScheduleNotFoundError(f"Jadwal '{schedule_id}' tidak ditemukan.", details={"schedule_id": str(schedule_id)})
         return entry.model_copy(deep=True)
 
     def list_schedules(self) -> list[ScheduleEntry]:
+        """Mengembalikan seluruh jadwal terdaftar sebagai salinan mendalam."""
         return [entry.model_copy(deep=True) for entry in self._schedules.values()]
 
     # --- Trigger manual (mis. untuk testing/verifikasi) -------------------------
@@ -250,6 +260,11 @@ class SchedulerManager:
         logger.info("SchedulerManager dihentikan.")
 
     async def _run(self) -> None:
+        """Background loop utama: cek jadwal jatuh tempo tiap interval polling.
+
+        Error apa pun di satu iterasi hanya di-log lalu lanjut ke iterasi
+        berikutnya (loop TIDAK boleh mati); CancelledError dibiarkan menjalar.
+        """
         while self._running:
             try:
                 await self._check_due_schedules()
@@ -260,6 +275,7 @@ class SchedulerManager:
             await asyncio.sleep(self._poll_interval_seconds)
 
     async def _check_due_schedules(self) -> None:
+        """Mengumpulkan id jadwal enabled yang ``next_run_at``-nya sudah lewat, lalu memicu masing-masing."""
         now = self._now()
         async with self._lock:
             due_ids = [
@@ -271,6 +287,12 @@ class SchedulerManager:
             await self._fire(schedule_id, now)
 
     async def _fire(self, schedule_id: uuid.UUID, now: datetime) -> None:
+        """Memicu satu jadwal: enqueue pengumumannya lalu majukan ``next_run_at`` (ONCE -> nonaktif).
+
+        Kegagalan enqueue (mis. zone tujuan hilang) hanya di-log dan TIDAK
+        mematikan loop; ``next_run_at`` tetap dimajukan supaya tidak terpicu
+        ulang setiap poll cycle.
+        """
         entry = self._schedules.get(schedule_id)
         if entry is None:
             return  # sudah dihapus di antara pengecekan due & pemicuan
@@ -302,6 +324,7 @@ class SchedulerManager:
             current.updated_at = now
 
     async def _enqueue_announcement(self, entry: ScheduleEntry) -> QueueItem:
+        """Meng-enqueue pengumuman jadwal ke QueueManager zone tujuan. Melempar ZoneNotFoundError jika zone hilang."""
         try:
             queue_manager: QueueManager = self._zone_manager.get_queue_manager(entry.zone)
         except ZoneNotFoundError:

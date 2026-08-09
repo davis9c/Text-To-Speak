@@ -70,10 +70,12 @@ _UNSET = object()
 
 
 def _utcnow() -> datetime:
+    """Timestamp UTC saat ini — helper kecil agar pemakaian timezone konsisten di seluruh kelas."""
     return datetime.now(timezone.utc)
 
 
 def _validate_zone_name(name: str) -> None:
+    """Memvalidasi nama zone terhadap ``ZONE_NAME_PATTERN``. Melempar ValidationAppError jika tidak cocok."""
     if not ZONE_NAME_PATTERN.match(name):
         raise ValidationAppError(
             "Nama zone hanya boleh berisi huruf, angka, underscore, dan dash (1-50 karakter).",
@@ -106,6 +108,7 @@ class ZoneManager:
         default_max_history: int = 1000,
         default_post_playback_delay_seconds: float = 0.5,
     ) -> None:
+        """Menyimpan komponen shared (device, TTS, resolver, publisher) serta default config per-zone."""
         self._audio_device_manager = audio_device_manager
         self._tts_service = tts_service
         self._asset_resolver = asset_resolver
@@ -129,6 +132,7 @@ class ZoneManager:
         publisher = self._event_publisher
 
         async def _publish_with_zone(event_type: str, data: dict) -> None:
+            """Meneruskan event ke publisher global dengan field ``zone`` ditambahkan ke payload."""
             await publisher(event_type, {**data, "zone": zone_name})
 
         return _publish_with_zone
@@ -303,15 +307,18 @@ class ZoneManager:
     # --- Lookup --------------------------------------------------------------
 
     def get_zone(self, name: str) -> Zone:
+        """Mengembalikan salinan metadata zone. Melempar ZoneNotFoundError jika tidak ada."""
         runtime = self._zones.get(name)
         if runtime is None:
             raise ZoneNotFoundError(f"Zone '{name}' tidak ditemukan.", details={"name": name})
         return runtime.metadata.model_copy()
 
     def list_zones(self) -> list[Zone]:
+        """Mengembalikan seluruh metadata zone terdaftar sebagai salinan."""
         return [runtime.metadata.model_copy() for runtime in self._zones.values()]
 
     def get_queue_manager(self, name: str) -> QueueManager:
+        """QueueManager milik zone. Melempar ZoneNotFoundError jika zone tidak ada."""
         return self._get_runtime(name).queue_manager
 
     def get_playback_manager(self, name: str) -> PlaybackManager | None:
@@ -319,12 +326,15 @@ class ZoneManager:
         return self._get_runtime(name).playback_manager
 
     def get_queue_worker(self, name: str) -> QueueWorker:
+        """QueueWorker milik zone. Melempar ZoneNotFoundError jika zone tidak ada."""
         return self._get_runtime(name).queue_worker
 
     def is_worker_running(self, name: str) -> bool:
+        """True jika QueueWorker zone sedang berjalan (lihat ``QueueWorker.is_running``)."""
         return self._get_runtime(name).queue_worker.is_running
 
     def get_playback_state(self, name: str) -> PlaybackState | None:
+        """Status playback zone; None jika sistem audio tidak tersedia di server ini."""
         playback_manager = self._get_runtime(name).playback_manager
         return playback_manager.state if playback_manager is not None else None
 
@@ -338,6 +348,7 @@ class ZoneManager:
         return playback_manager.current_file if playback_manager is not None else None
 
     def _get_runtime(self, name: str) -> _ZoneRuntime:
+        """Mengembalikan runtime zone; melempar ZoneNotFoundError jika zone tidak terdaftar."""
         runtime = self._zones.get(name)
         if runtime is None:
             raise ZoneNotFoundError(f"Zone '{name}' tidak ditemukan.", details={"name": name})

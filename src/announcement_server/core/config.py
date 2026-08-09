@@ -65,6 +65,7 @@ class LoggingConfig(BaseModel):
     @field_validator("level")
     @classmethod
     def validate_level(cls, value: str) -> str:
+        """Pydantic field validator: normalisasi level logging ke huruf besar & tolak nilai tak dikenal."""
         allowed = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
         normalized = value.upper()
         if normalized not in allowed:
@@ -84,6 +85,7 @@ class AppMetadata(BaseModel):
     @field_validator("environment")
     @classmethod
     def validate_environment(cls, value: str) -> str:
+        """Pydantic field validator: normalisasi environment ke huruf kecil & tolak nilai tak dikenal."""
         allowed = {"development", "staging", "production"}
         normalized = value.lower()
         if normalized not in allowed:
@@ -427,6 +429,7 @@ class YamlConfigSettingsSource(PydanticBaseSettingsSource):
     """
 
     def __init__(self, settings_cls, yaml_config_path: str | None = None):  # type: ignore[no-untyped-def]
+        """Menyimpan path file YAML (argumen pemanggil menang atas ``model_config``)."""
         super().__init__(settings_cls)
         # `yaml_config_path` yang diteruskan lewat init kwargs (mis. test, atau
         # `get_settings(config_path=...)`) MENANG atas model_config — sebelumnya
@@ -439,6 +442,7 @@ class YamlConfigSettingsSource(PydanticBaseSettingsSource):
         return None, field_name, False
 
     def __call__(self) -> dict[str, Any]:
+        """Hook pydantic-settings: mengembalikan dict hasil parse file YAML config (kosong jika file tak ada)."""
         return _read_yaml_file(Path(self._yaml_config_path))
 
 
@@ -490,6 +494,7 @@ class AppSettings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Hook pydantic-settings: mengembalikan urutan sources dengan ``YamlConfigSettingsSource`` disisipkan."""
         yaml_source = YamlConfigSettingsSource(settings_cls, init_settings.init_kwargs.get("yaml_config_path"))
         # init_settings & env_settings di depan (prioritas lebih tinggi) daripada yaml_source.
         return (init_settings, env_settings, dotenv_settings, yaml_source, file_secret_settings)

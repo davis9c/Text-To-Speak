@@ -41,6 +41,7 @@ class TTSEngineManager:
     """Menyimpan instance engine yang tersedia dan menyelesaikan pemilihan engine per-request."""
 
     def __init__(self, config: TTSConfig) -> None:
+        """Membangun engine default (eager, fatal jika gagal) + engine tambahan dari ``additional_engines`` (non-fatal)."""
         self._default_engine_name = config.engine
         # Dibangun eagerly saat startup (sama seperti perilaku V1 —
         # `TTSService.__init__` sebelumnya memanggil `EngineFactory.create(config)`

@@ -35,6 +35,11 @@ router = APIRouter(prefix="/chimes", tags=["Chime Discovery"])
     "dari chime bertanda default (`chime.*`/`default.*`), atau null jika tidak ada.",
 )
 async def list_chimes(chime_catalog: ChimeCatalogDep) -> ChimeListResponse:
+    """Menampilkan seluruh chime yang tersedia beserta chime default.
+
+    Direktori kosong/tidak ada menghasilkan ``chimes: []``; ``default_chime``
+    bernilai null jika tidak ada chime bertanda default.
+    """
     profiles = await chime_catalog.list()
     default_profile = await chime_catalog.get_default()
     return ChimeListResponse(

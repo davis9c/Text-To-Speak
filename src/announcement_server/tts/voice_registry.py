@@ -33,6 +33,7 @@ class VoiceRegistry:
     """Menyimpan & menyediakan lookup/validasi voice dari seluruh engine yang terdaftar."""
 
     def __init__(self) -> None:
+        """Menyiapkan registry kosong; key = pasangan (engine, voice_id)."""
         # Key = (engine, voice_id) -- lihat VoiceProfile.registry_key. Dua
         # engine berbeda boleh punya voice dengan id yang kebetulan sama
         # tanpa saling bertabrakan.

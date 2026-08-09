@@ -71,6 +71,12 @@ class EspeakEngine(TTSEngine):
     """Engine TTS berbasis eSpeak NG."""
 
     def __init__(self, config: TTSConfig) -> None:
+        """Menyimpan path binary, timeout, dan retry dari ``config``.
+
+        Tidak melempar exception walau binary belum ditemukan (graceful
+        degradation, sama seperti ``PiperEngine``) -- hanya menulis warning ke
+        log. Keberadaan binary dicek via ``shutil.which()`` (PATH) dan cek file.
+        """
         self._binary_path = config.espeak_binary_path
         self._timeout_seconds = config.generation_timeout_seconds
         self._max_retries = config.max_retries
@@ -90,6 +96,11 @@ class EspeakEngine(TTSEngine):
             )
 
     async def synthesize(self, *, text: str, voice: str, speed: float) -> bytes:
+        """Menghasilkan audio dari teks via eSpeak NG, dibungkus retry dengan backoff.
+
+        Pola retry sama persis dengan ``PiperEngine``: hanya ``TTSGenerationError``
+        (kegagalan proses transien) yang di-retry.
+        """
         # Pola retry SAMA PERSIS dengan PiperEngine: hanya TTSGenerationError
         # (kegagalan proses transien) yang di-retry -- lihat penjelasan di sana.
         return await retry_with_backoff(
@@ -101,6 +112,13 @@ class EspeakEngine(TTSEngine):
         )
 
     async def _synthesize_once(self, *, text: str, voice: str, speed: float) -> bytes:
+        """Eksekusi tunggal sintesis eSpeak NG (tanpa retry): subprocess asinkron, timeout, temp file.
+
+        Raises:
+            VoiceNotFoundError: Jika eSpeak NG melaporkan voice tidak dikenal (via pesan stderr).
+            TTSEngineNotAvailableError: Jika binary tidak bisa dijalankan.
+            TTSGenerationError: Jika proses timeout, exit code non-zero, atau file output tidak dihasilkan.
+        """
         words_per_minute = round(_BASELINE_WORDS_PER_MINUTE * speed) if speed > 0 else _BASELINE_WORDS_PER_MINUTE
         words_per_minute = max(_MIN_WORDS_PER_MINUTE, min(_MAX_WORDS_PER_MINUTE, words_per_minute))
 
@@ -207,6 +225,12 @@ class EspeakEngine(TTSEngine):
         return self._parse_voices_output(stdout.decode("utf-8", errors="replace"))
 
     def _parse_voices_output(self, raw_output: str) -> list[VoiceProfile]:
+        """Parsing output teks ``--voices`` eSpeak NG menjadi daftar ``VoiceProfile``.
+
+        Baris yang tidak dikenali (format kurang dari 5 kolom) dilewati dengan
+        warning; gender hanya diisi untuk kode ``M``/``F`` yang dikenal, selain
+        itu ``None`` (tidak ditebak).
+        """
         voices: list[VoiceProfile] = []
         lines = raw_output.splitlines()
         for line in lines:

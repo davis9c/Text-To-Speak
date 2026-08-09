@@ -44,6 +44,7 @@ def build_logging_config(config: LoggingConfig) -> dict[str, Any]:
     fmt = _JSON_FORMAT if config.json_format else _TEXT_FORMAT
 
     def _rotating_file_handler(path: Path, level: str) -> dict[str, Any]:
+        """Membangun dict handler RotatingFileHandler (untuk ``dictConfig``) satu file log."""
         return {
             "class": "logging.handlers.RotatingFileHandler",
             "formatter": "default",

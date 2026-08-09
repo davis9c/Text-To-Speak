@@ -88,6 +88,7 @@ class AnnouncementPipelineProcessor:
         scaled_audio_dir: str | Path | None = None,
         asset_resolver: AudioAssetResolver | None = None,
     ) -> None:
+        """Menyimpan komponen pipeline (TTS, queue, playback), delay, gain zone & resolver chime."""
         self._tts_processor = tts_processor
         self._queue_manager = queue_manager
         self._playback_manager = playback_manager
@@ -109,11 +110,12 @@ class AnnouncementPipelineProcessor:
 
     @property
     def volume_gain(self) -> float:
-        """Volume/gain zone saat ini. Bisa diubah kapan saja lewat setter (Phase 6, PUT /zones/{name})."""
+        """Volume/gain zone saat ini (diterapkan sebelum playback; 1.0 = tanpa gain)."""
         return self._volume_gain
 
     @volume_gain.setter
     def volume_gain(self, value: float) -> None:
+        """Mengubah gain zone (dipakai ``PUT /zones/{name}``); berlaku untuk item berikutnya."""
         self._volume_gain = value
 
     async def __call__(self, item: QueueItem) -> None:
@@ -262,6 +264,7 @@ class AnnouncementPipelineProcessor:
 
     @staticmethod
     def _delete_quietly(path: Path) -> None:
+        """Menghapus file (biasanya salinan audio sementara) tanpa melempar error apa pun."""
         try:
             path.unlink(missing_ok=True)
         except Exception:  # noqa: BLE001 - kegagalan membersihkan file temporer bukan error fatal

@@ -42,6 +42,7 @@ class AudioAssetResolver:
     """Resolve referensi file audio statis (mis. "sounds/bell.mp3") menjadi path WAV siap putar."""
 
     def __init__(self, config: AnnouncementConfig) -> None:
+        """Menyimpan path & parameter konversi dari ``AnnouncementConfig`` (murni, tanpa I/O)."""
         self._sounds_dir = Path(config.sounds_dir)
         self._converted_cache_dir = Path(config.converted_cache_dir)
         self._ffmpeg_binary_path = config.ffmpeg_binary_path
@@ -127,6 +128,7 @@ class AudioAssetResolver:
         return candidate
 
     def _cached_path_for(self, source_path: Path) -> Path:
+        """Path WAV cache untuk satu file sumber (key = SHA256 path+mtime+size)."""
         stat = source_path.stat()
         signature = f"{source_path.resolve()}|{stat.st_mtime_ns}|{stat.st_size}"
         digest = hashlib.sha256(signature.encode("utf-8")).hexdigest()

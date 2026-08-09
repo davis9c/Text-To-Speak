@@ -17,6 +17,8 @@ class CacheCleanupRequest(BaseModel):
 
 
 class CacheCleanupStats(BaseModel):
+    """Statistik hasil cleanup satu cache (TTS atau announcement audio)."""
+
     deleted_count: int = Field(description="Jumlah file yang dihapus")
     freed_bytes: int = Field(description="Total ukuran file yang dihapus (bytes)")
 

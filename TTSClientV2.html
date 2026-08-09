@@ -699,6 +699,142 @@
                 padding-bottom: 6px;
             }
         }
+        /* =====================================================================
+         API TERMINAL — log request/response HTTP (patch window.fetch)
+         ===================================================================== */
+        .api-log {
+            max-height: 340px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            font-size: 12px;
+        }
+
+        .api-row {
+            border: 1px solid var(--panel-border);
+            border-radius: 5px;
+            background: var(--input-bg);
+        }
+
+        .api-row-header {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            padding: 5px 8px;
+            cursor: pointer;
+        }
+
+        .api-row-header:hover {
+            background: var(--panel-border);
+        }
+
+        .api-method {
+            font-weight: 700;
+            font-size: 11px;
+            padding: 1px 6px;
+            border-radius: 4px;
+            min-width: 52px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .api-method.GET {
+            background: rgba(139, 147, 163, 0.18);
+            color: var(--text-dim);
+        }
+
+        .api-method.POST {
+            background: rgba(79, 140, 255, 0.18);
+            color: var(--accent);
+        }
+
+        .api-method.PUT {
+            background: rgba(242, 184, 75, 0.18);
+            color: var(--warn);
+        }
+
+        .api-method.DELETE {
+            background: rgba(255, 92, 92, 0.18);
+            color: var(--offline);
+        }
+
+        .api-status {
+            flex-shrink: 0;
+            font-variant-numeric: tabular-nums;
+            font-weight: 600;
+            min-width: 34px;
+            text-align: center;
+        }
+
+        .api-status.ok {
+            color: var(--online);
+        }
+
+        .api-status.warn {
+            color: var(--warn);
+        }
+
+        .api-status.err {
+            color: var(--offline);
+        }
+
+        .api-duration {
+            color: var(--text-dim);
+            flex-shrink: 0;
+        }
+
+        .api-url {
+            color: var(--text-dim);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1;
+            min-width: 60px;
+        }
+
+        .api-time {
+            color: var(--text-dim);
+            flex-shrink: 0;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .api-copy-btn {
+            flex-shrink: 0;
+        }
+
+        .api-detail {
+            display: none;
+            border-top: 1px solid var(--panel-border);
+            padding: 8px;
+        }
+
+        .api-row.open .api-detail {
+            display: block;
+        }
+
+        .api-detail .label {
+            font-size: 11px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            margin-bottom: 4px;
+        }
+
+        .api-detail pre {
+            margin: 0 0 8px 0;
+            padding: 8px;
+            background: var(--bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 5px;
+            font-size: 11.5px;
+            font-family: Consolas, Menlo, monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 180px;
+            overflow-y: auto;
+            color: var(--text);
+        }
     </style>
 </head>
 
@@ -731,6 +867,7 @@
             <button class="tab-btn" data-tab="history">History &amp; Metrics</button>
             <button class="tab-btn" data-tab="scheduler">Scheduler</button>
             <button class="tab-btn" data-tab="log">Log</button>
+            <button class="tab-btn" data-tab="apiterm">API Terminal</button>
         </nav>
 
         <div class="tab-panel active" data-tab="server">
@@ -863,7 +1000,9 @@
                     </div>
                     <div class="field" style="flex:1; min-width:160px;">
                         <label for="ttsChime">Chime (opsional)</label>
-                        <input type="text" id="ttsChime" placeholder="chime.wav" maxlength="500">
+                        <select id="ttsChime">
+                            <option value="">(tanpa chime)</option>
+                        </select>
                     </div>
                 </div>
                 <div class="row" style="margin-top:10px;">
@@ -1143,7 +1282,9 @@
                     </div>
                     <div class="field" style="flex:1; min-width:160px;">
                         <label for="schChime">Chime (opsional)</label>
-                        <input type="text" id="schChime" placeholder="chime.wav" maxlength="500">
+                        <select id="schChime">
+                            <option value="">(tanpa chime)</option>
+                        </select>
                     </div>
                     <div class="field">
                         <label for="schSpeed">Speed</label>
@@ -1204,6 +1345,28 @@
             </div>
         </div>
 
+        <div class="tab-panel" data-tab="apiterm">
+            <div class="panel">
+                <h2>
+                    API Terminal
+                    <span style="display:flex; gap:10px; align-items:center;">
+                        <label style="font-size:11px; color:var(--text-dim); display:flex; align-items:center; gap:4px;">
+                            <input type="checkbox" id="apiShowGet" style="min-width:auto; width:auto;"> Termasuk GET
+                        </label>
+                        <label style="font-size:11px; color:var(--text-dim); display:flex; align-items:center; gap:4px;">
+                            <input type="checkbox" id="apiAutoScroll" checked style="min-width:auto; width:auto;"> Auto
+                            scroll
+                        </label>
+                        <button class="secondary small-btn" id="btnClearApiLog">Clear</button>
+                    </span>
+                </h2>
+                <div class="api-log" id="apiLog">
+                    <div class="empty">Belum ada request. Lakukan tindakan (send speak, buat jadwal, dll) untuk
+                        melihat request &amp; response API di sini.</div>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <div class="footer-note">TTSClientV2 — Kompatibel dengan server TTS V2 (TTS Engine &amp; Voice Discovery, Chime,
@@ -1228,6 +1391,8 @@
 
             const SERVER_CONFIG_STORAGE_KEY = "tts_remote_client.servers.v2";
 
+            // Simpan daftar server (label/host/port) ke localStorage.
+
             function saveServerConfigs() {
                 try {
                     const configs = servers.map((s) => ({ label: s.label, host: s.host, port: s.port }));
@@ -1236,6 +1401,8 @@
                     // localStorage tidak tersedia — abaikan, aplikasi tetap berjalan in-memory.
                 }
             }
+
+            // Baca daftar server tersimpan dari localStorage; kembalikan null bila tidak ada/rusak.
 
             function loadServerConfigs() {
                 try {
@@ -1258,6 +1425,12 @@
             let healthCheckTimer = null;
             let metricsRefreshTimer = null;
 
+            const API_LOG_MAX = 200;
+            const API_BODY_MAX_CHARS = 3000;
+            let apiLog = [];          // { id, time, method, url, status, durationMs, requestBody, responseBody, error }
+            let apiLogExpanded = new Set();
+            let apiLogSeq = 0;
+
             const HEALTH_CHECK_INTERVAL_MS = 10000;
             const HEALTH_CHECK_TIMEOUT_MS = 4000;
             const WS_RECONNECT_BASE_MS = 1000;
@@ -1269,6 +1442,8 @@
             const KNOWN_WS_EVENTS = new Set([
                 "snapshot", "queue_changed", "speaking", "idle", "pause", "resume", "finished"
             ]);
+
+            // Buat objek state runtime per-server (status HTTP/WS, zone, queue, discovery, scheduler).
 
             function makeServerState(cfg, idx) {
                 return {
@@ -1301,6 +1476,10 @@
                     voices: [],
                     voicesLoaded: false,
 
+                    // --- Chime Discovery (GET /chimes) ---
+                    chimes: [],
+                    chimesLoaded: false,
+
                     // --- TTS / Zone target / Playback / Devices ---
                     activeZoneName: null,
                     zoneEdit: null,            // nama zone yang sedang di-edit (form inline)
@@ -1320,13 +1499,19 @@
                 };
             }
 
+            // URL HTTP dasar server (http://host:port).
+
             function baseUrl(server) {
                 return "http://" + server.host + ":" + server.port;
             }
 
+            // URL WebSocket status server (ws://host:port/ws/status).
+
             function wsUrl(server) {
                 return "ws://" + server.host + ":" + server.port + "/ws/status";
             }
+
+            // Cari objek server berdasarkan id; null bila tidak ditemukan.
 
             function getServerById(id) {
                 return servers.find((s) => s.id === id) || null;
@@ -1353,6 +1538,12 @@
                 btnRefreshZones: document.getElementById("btnRefreshZones"),
                 eventLog: document.getElementById("eventLog"),
                 btnClearEvents: document.getElementById("btnClearEvents"),
+
+                // API Terminal
+                apiLog: document.getElementById("apiLog"),
+                apiShowGet: document.getElementById("apiShowGet"),
+                apiAutoScroll: document.getElementById("apiAutoScroll"),
+                btnClearApiLog: document.getElementById("btnClearApiLog"),
 
                 // Zone aktif & device
                 activeZoneSelect: document.getElementById("activeZoneSelect"),
@@ -1460,6 +1651,8 @@
             // ---------------------------------------------------------------------
             // Tabs
             // ---------------------------------------------------------------------
+            // Render daftar server (kartu) dengan status HTTP/WS + aksi Pilih/Hapus.
+
             function switchTab(tabName) {
                 document.querySelectorAll(".tab-panel").forEach((panel) => {
                     panel.classList.toggle("active", panel.getAttribute("data-tab") === tabName);
@@ -1476,6 +1669,8 @@
             // ---------------------------------------------------------------------
             // Rendering — Server selector & list
             // ---------------------------------------------------------------------
+            // Rendering — Server selector & list
+
             function renderServerSelect() {
                 const prevValue = el.serverSelect.value;
                 el.serverSelect.innerHTML = "";
@@ -1491,6 +1686,8 @@
                     el.serverSelect.value = activeServerId;
                 }
             }
+
+            // Rendering — Queue panel (dari GET /zones/{name}/queue)
 
             function renderServerList() {
                 el.serverList.innerHTML = "";
@@ -1546,6 +1743,8 @@
                 });
             }
 
+            // Label teks status HTTP server (Online/Offline/…).
+
             function httpStatusLabel(s) {
                 switch (s.httpStatus) {
                     case "online": return "Online" + (s.lastChecked ? " · " + s.lastChecked : "");
@@ -1555,6 +1754,8 @@
                 }
             }
 
+            // Label teks status WebSocket server (Connected/Reconnecting/…).
+
             function wsStatusLabel(s) {
                 switch (s.wsStatus) {
                     case "connected": return "Connected";
@@ -1563,6 +1764,8 @@
                     default: return "Disconnected";
                 }
             }
+
+            // Render banner server aktif (dot status HTTP, WS, tombol disconnect).
 
             function renderActiveBanner() {
                 const active = activeServerId ? getServerById(activeServerId) : null;
@@ -1592,6 +1795,8 @@
             // ---------------------------------------------------------------------
             // Rendering — Zone panel (tabel + form edit inline)
             // ---------------------------------------------------------------------
+            // Rendering — Zone panel (tabel + form edit inline)
+
             function renderZones() {
                 const active = activeServerId ? getServerById(activeServerId) : null;
                 if (!active) {
@@ -1724,6 +1929,8 @@
             // ---------------------------------------------------------------------
             // Rendering — Event log
             // ---------------------------------------------------------------------
+            // Rendering — Event log
+
             function renderEventLog() {
                 const active = activeServerId ? getServerById(activeServerId) : null;
                 if (!active || active.eventLog.length === 0) {
@@ -1759,6 +1966,8 @@
             // ---------------------------------------------------------------------
             // Rendering — Zone selector & TTS-target selector
             // ---------------------------------------------------------------------
+            // Rendering — Zone selector & TTS-target selector
+
             function renderZoneSelectors() {
                 const active = activeServerId ? getServerById(activeServerId) : null;
                 const zones = active && active.zonesLoaded ? active.zones : [];
@@ -1829,6 +2038,8 @@
             // ---------------------------------------------------------------------
             // Rendering — Device selectors (dari GET /devices)
             // ---------------------------------------------------------------------
+            // Rendering — Device selectors (dari GET /devices)
+
             function renderDeviceSelectors() {
                 const active = activeServerId ? getServerById(activeServerId) : null;
                 const devices = active && active.devicesLoaded ? active.devices : [];
@@ -1855,11 +2066,15 @@
             // ---------------------------------------------------------------------
             // Rendering — TTS Engine & Voice selectors (V2: GET /tts/engines + /tts/voices)
             // ---------------------------------------------------------------------
+            // Rendering — TTS Engine & Voice selectors (V2: GET /tts/engines + /tts/voices)
+
             function voicesForEngine(server, engineName) {
                 const effective = engineName || (server && server.defaultEngine) || "";
                 if (!effective) return server ? server.voices || [] : [];
                 return (server && server.voices || []).filter((v) => v.engine === effective);
             }
+
+            // Rendering — Queue panel (dari GET /zones/{name}/queue)
 
             function populateEngineSelect(selectEl, server, prevValue) {
                 selectEl.innerHTML = '<option value="">(default server)</option>';
@@ -1878,6 +2093,8 @@
                     selectEl.value = prevValue;
                 }
             }
+
+            // Isi dropdown voice sesuai engine terpilih; voice custom tetap bisa round-trip.
 
             function populateVoiceSelect(selectEl, server, engineName, prevValue) {
                 const voices = voicesForEngine(server, engineName);
@@ -1905,6 +2122,39 @@
                 if (prevValue) selectEl.value = prevValue;
             }
 
+            // Dropdown chime (GET /chimes): opsi pertama SELALU "(tanpa chime)" (= null di request).
+            function populateChimeSelect(selectEl, server, prevValue) {
+                const chimes = server.chimes || [];
+                selectEl.innerHTML = '<option value="">(tanpa chime)</option>';
+                let found = false;
+                chimes.forEach((c) => {
+                    const opt = document.createElement("option");
+                    opt.value = c.file;
+                    opt.textContent = (c.name || c.id) + (c.is_default ? " (default)" : "");
+                    selectEl.appendChild(opt);
+                    if (c.file === prevValue) found = true;
+                });
+                // Chime yang tidak ada di daftar discovery (server lama / file sudah dihapus)
+                // harus tetap bisa round-trip saat edit jadwal — tambahkan sebagai opsi khusus.
+                if (prevValue && !found) {
+                    const opt = document.createElement("option");
+                    opt.value = prevValue;
+                    opt.textContent = prevValue + " (custom / tidak di daftar)";
+                    selectEl.appendChild(opt);
+                }
+                if (prevValue) selectEl.value = prevValue;
+            }
+
+            // Isi ulang dropdown chime pada form TTS & Scheduler dari data discovery.
+            // Rendering — Queue panel (dari GET /zones/{name}/queue)
+
+            function renderChimeSelectors() {
+                const active = activeServerId ? getServerById(activeServerId) : null;
+                if (!active || !active.chimesLoaded) return; // belum dimuat — biarkan pilihan saat ini
+                populateChimeSelect(el.ttsChime, active, el.ttsChime.value);
+                populateChimeSelect(el.schChime, active, el.schChime.value);
+            }
+
             // Visibilitas select vs input manual voice ditentukan dari DATA (apakah ada voice
             // untuk engine terpilih), bukan dari state CSS transien — input manual tetap tersedia
             // sebagai fallback saat discovery kosong/gagal (voice custom tidak boleh hilang diam-diam).
@@ -1915,6 +2165,8 @@
                 el.ttsVoiceCustomField.style.display = ttsHasVoices ? "none" : "";
                 el.schVoiceField.style.display = active && active.voicesLoaded ? "" : "none";
             }
+
+            // Render info discovery + isi dropdown engine/voice/chime + visibilitas field voice.
 
             function renderEngineVoiceSelectors() {
                 const active = activeServerId ? getServerById(activeServerId) : null;
@@ -1941,12 +2193,15 @@
                 populateVoiceSelect(el.ttsVoice, active, el.ttsEngine.value, el.ttsVoice.value);
                 populateEngineSelect(el.schEngine, active, el.schEngine.value);
                 populateVoiceSelect(el.schVoice, active, el.schEngine.value, el.schVoice.value);
+                renderChimeSelectors();
                 renderVoiceFieldVisibility(active);
             }
 
             // ---------------------------------------------------------------------
             // Rendering — Playback panel global
             // ---------------------------------------------------------------------
+            // Rendering — Playback panel global
+
             function renderPlayback() {
                 const active = activeServerId ? getServerById(activeServerId) : null;
                 const pb = active ? active.playback : { state: null, current_file: null, selected_device_id: null };
@@ -1971,6 +2226,8 @@
             // ---------------------------------------------------------------------
             // Rendering — Queue panel (dari GET /zones/{name}/queue)
             // ---------------------------------------------------------------------
+            // Rendering — Queue panel (dari GET /zones/{name}/queue)
+
             function renderQueue() {
                 const active = activeServerId ? getServerById(activeServerId) : null;
                 if (!active) {
@@ -2040,6 +2297,8 @@
             // ---------------------------------------------------------------------
             // Rendering — History panel (dari GET /history)
             // ---------------------------------------------------------------------
+            // Rendering — History panel (dari GET /history)
+
             function renderHistory() {
                 const active = activeServerId ? getServerById(activeServerId) : null;
                 if (!active) {
@@ -2087,6 +2346,8 @@
             // ---------------------------------------------------------------------
             // Rendering — Status & Metrics panel
             // ---------------------------------------------------------------------
+            // Rendering — Status & Metrics panel
+
             function statField(label, value) {
                 return '<div class="field"><label>' + escapeHtml(label) + '</label><span class="status-text">' + escapeHtml(String(value)) + "</span></div>";
             }
@@ -2099,17 +2360,23 @@
                 return h + "j " + m + "m " + s + "d";
             }
 
+            // Format ukuran byte menjadi B/KB/MB.
+
             function formatBytes(bytes) {
                 if (bytes < 1024) return bytes + " B";
                 if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
                 return (bytes / 1024 / 1024).toFixed(2) + " MB";
             }
 
+            // Render objek kunci:nilai menjadi kumpulan badge (untuk metrics).
+
             function badgeMap(obj) {
                 const keys = Object.keys(obj || {});
                 if (keys.length === 0) return '<span class="empty">-</span>';
                 return keys.map((k) => '<span class="badge">' + escapeHtml(k) + ": " + obj[k] + "</span>").join(" ");
             }
+
+            // Render panel Status (GET /status) & Metrics (GET /metrics).
 
             function renderStatusMetrics() {
                 const active = activeServerId ? getServerById(activeServerId) : null;
@@ -2160,6 +2427,8 @@
             // ---------------------------------------------------------------------
             // Rendering — Scheduler panel (dari GET /scheduler)
             // ---------------------------------------------------------------------
+            // Rendering — Scheduler panel (dari GET /scheduler)
+
             function summarizeAnnouncement(a) {
                 if (!a) return "-";
                 let label = a.type === "tts" ? "tts: " + (a.text || "-") : "audio: " + (a.file || "-");
@@ -2235,6 +2504,8 @@
                 });
             }
 
+            // Render ulang seluruh panel yang terikat server aktif.
+
             function renderAll() {
                 renderServerSelect();
                 renderServerList();
@@ -2251,6 +2522,8 @@
                 renderEventLog();
             }
 
+            // Escape teks agar aman dirender sebagai HTML (anti-XSS).
+
             function escapeHtml(str) {
                 const div = document.createElement("div");
                 div.textContent = str;
@@ -2259,6 +2532,8 @@
 
             // Server mengirim error body {success, error:{code,message,details}, request_id}
             // (core/exceptions.py) — helper ini membaca pesan dari semua bentuk yang mungkin.
+            // Mulai polling GET /health berkala untuk server aktif.
+
             function apiErrorMessage(data) {
                 if (!data) return null;
                 if (data.error && typeof data.error.message === "string") return data.error.message;
@@ -2269,6 +2544,8 @@
 
             // parseFloat dengan fallback eksplisit — penting untuk nilai valid 0 (volume 0.0 = bisu),
             // yang hilang jika memakai pola `parseFloat(x) || 1.0`.
+            // parseFloat dengan fallback eksplisit — penting untuk nilai valid 0 (volume 0.0 = bisu),
+
             function numOr(value, fallback) {
                 const v = parseFloat(value);
                 return Number.isNaN(v) ? fallback : v;
@@ -2309,6 +2586,8 @@
                 renderAll();
             }
 
+            // Queue — GET /zones/{name}/queue (scoped ke Zone Aktif)
+
             function startHealthPolling(server) {
                 stopHealthPolling();
                 healthCheckTimer = setInterval(() => {
@@ -2316,6 +2595,8 @@
                     if (current) checkHealth(current);
                 }, HEALTH_CHECK_INTERVAL_MS);
             }
+
+            // Hentikan polling kesehatan.
 
             function stopHealthPolling() {
                 if (healthCheckTimer) {
@@ -2328,6 +2609,9 @@
             // Refresh Zone via GET /zones — dipakai saat WebSocket baru terhubung
             // dan sebagai refresh reaktif ketika event queue_changed/finished terjadi.
             // ---------------------------------------------------------------------
+            // Refresh Zone via GET /zones — dipakai saat WebSocket baru terhubung
+            // Refresh Zone via GET /zones — dipakai saat WebSocket baru terhubung
+
             async function refreshZones(server) {
                 try {
                     const res = await fetch(baseUrl(server) + "/zones", { method: "GET" });
@@ -2354,6 +2638,9 @@
             // ---------------------------------------------------------------------
             // Devices — GET /devices (global)
             // ---------------------------------------------------------------------
+            // Devices — GET /devices (global)
+            // Devices — GET /devices (global)
+
             async function refreshDevices(server) {
                 try {
                     const res = await fetch(baseUrl(server) + "/devices", { method: "GET" });
@@ -2372,6 +2659,9 @@
             // ---------------------------------------------------------------------
             // TTS Engine & Voice Discovery (V2) — GET /tts/engines + GET /tts/voices
             // ---------------------------------------------------------------------
+            // TTS Engine & Voice Discovery (V2) — GET /tts/engines + GET /tts/voices
+            // TTS Engine & Voice Discovery (V2) — GET /tts/engines + GET /tts/voices
+
             async function refreshEngines(server) {
                 try {
                     const res = await fetch(baseUrl(server) + "/tts/engines", { method: "GET" });
@@ -2394,6 +2684,8 @@
                 }
             }
 
+            // Muat daftar voice (GET /tts/voices) ke state server; gagal = daftar kosong.
+
             async function refreshVoices(server) {
                 try {
                     const res = await fetch(baseUrl(server) + "/tts/voices", { method: "GET" });
@@ -2411,6 +2703,28 @@
                     server.voices = [];
                     server.voicesLoaded = true;
                     if (server.id === activeServerId) renderEngineVoiceSelectors();
+                }
+            }
+
+            // Chime Discovery — GET /chimes. Gagal/404 (server lama tanpa endpoint ini)
+            // menghasilkan daftar kosong, dropdown hanya berisi "(tanpa chime)".
+            async function refreshChimes(server) {
+                try {
+                    const res = await fetch(baseUrl(server) + "/chimes", { method: "GET" });
+                    if (!res.ok) {
+                        server.chimes = [];
+                        server.chimesLoaded = true;
+                        if (server.id === activeServerId) renderChimeSelectors();
+                        return;
+                    }
+                    const data = await res.json();
+                    server.chimes = Array.isArray(data.chimes) ? data.chimes : [];
+                    server.chimesLoaded = true;
+                    if (server.id === activeServerId) renderChimeSelectors();
+                } catch (err) {
+                    server.chimes = [];
+                    server.chimesLoaded = true;
+                    if (server.id === activeServerId) renderChimeSelectors();
                 }
             }
 
@@ -2476,6 +2790,8 @@
                     addEventLogEntry(server, "error", server.activeZoneName, "Cancel item queue: server tidak dapat dihubungi.", "Error");
                 }
             }
+
+            // Hapus seluruh item pending antrean (POST /clear) — hanya untuk zone 'main'.
 
             async function clearPendingQueue(server) {
                 // Endpoint POST /clear bersifat global (antrean zone "main") — guard ganda.
@@ -2594,6 +2910,8 @@
                 }
             }
 
+            // Mulai refresh otomatis /status + /metrics (jika checkbox aktif).
+
             function startMetricsAutoRefresh(server) {
                 stopMetricsAutoRefresh();
                 if (!el.autoRefreshMetrics.checked) return;
@@ -2603,6 +2921,8 @@
                     if (current) refreshStatusMetrics(current);
                 }, METRICS_REFRESH_INTERVAL_MS);
             }
+
+            // Hentikan refresh otomatis metrics.
 
             function stopMetricsAutoRefresh() {
                 if (metricsRefreshTimer) {
@@ -2663,6 +2983,8 @@
                 }
             }
 
+            // Kirim PUT /zones/{name} dengan patch (volume/enabled/device_id).
+
             async function updateZone(server, name, patch) {
                 try {
                     const res = await fetch(baseUrl(server) + "/zones/" + encodeURIComponent(name), {
@@ -2687,6 +3009,8 @@
                     addEventLogEntry(server, "error", name, "Update zone: server tidak dapat dihubungi.", "Zone");
                 }
             }
+
+            // Hapus zone (DELETE /zones/{name}) lalu muat ulang daftar zone.
 
             async function deleteZone(server, name) {
                 try {
@@ -2731,6 +3055,8 @@
                 }
             }
 
+            // Baca form Scheduler jadi payload announcement (tts/audio + engine/voice/chime/dll).
+
             function buildScheduleAnnouncement() {
                 const type = el.schType.value;
                 const text = el.schText.value.trim();
@@ -2751,6 +3077,8 @@
                 }
                 return announcement;
             }
+
+            // Kumpulkan & validasi seluruh field form jadwal jadi payload create/update; null bila tidak valid.
 
             function collectSchedulePayload(server) {
                 const name = el.schName.value.trim();
@@ -2802,6 +3130,8 @@
                 return payload;
             }
 
+            // Kirim POST /scheduler untuk membuat jadwal baru.
+
             async function createSchedule(server, payload) {
                 el.btnCreateSchedule.disabled = true;
                 el.schResult.textContent = "Membuat jadwal...";
@@ -2830,6 +3160,8 @@
                     el.btnCreateSchedule.disabled = false;
                 }
             }
+
+            // Kirim PUT /scheduler/{id} (parsial) untuk memperbarui jadwal.
 
             async function updateSchedule(server, scheduleId, payload) {
                 el.btnCreateSchedule.disabled = true;
@@ -2862,6 +3194,8 @@
                 }
             }
 
+            // Isi form Scheduler dengan data jadwal yang akan diedit (mode edit).
+
             function startScheduleEdit(server, schedule) {
                 server.schEditingId = schedule.id;
                 el.schName.value = schedule.name;
@@ -2881,7 +3215,7 @@
                 el.schPriority.value = ann.priority || "normal";
                 el.schEngine.value = ann.engine || "";
                 populateVoiceSelect(el.schVoice, server, el.schEngine.value, ann.voice || "");
-                el.schChime.value = ann.chime || "";
+                populateChimeSelect(el.schChime, server, ann.chime || "");
                 el.schSpeed.value = String(ann.speed === undefined || ann.speed === null ? 1.0 : ann.speed);
                 el.schPitch.value = String(ann.pitch === undefined || ann.pitch === null ? 1.0 : ann.pitch);
                 el.schVolume.value = String(ann.volume === undefined || ann.volume === null ? 1.0 : ann.volume);
@@ -2893,6 +3227,8 @@
                 el.schResult.textContent = "";
                 el.schResult.className = "status-text";
             }
+
+            // Kembalikan form Scheduler ke mode buat (kosongkan & sembunyikan tombol Batal).
 
             function cancelScheduleEditUi() {
                 const active = activeServerId ? getServerById(activeServerId) : null;
@@ -2916,6 +3252,8 @@
                 if (active) renderEngineVoiceSelectors();
             }
 
+            // Balik status enabled jadwal (PUT parsial {enabled}).
+
             async function toggleScheduleEnabled(server, schedule) {
                 try {
                     const res = await fetch(baseUrl(server) + "/scheduler/" + encodeURIComponent(schedule.id), {
@@ -2933,6 +3271,8 @@
                 }
             }
 
+            // Hapus jadwal (DELETE /scheduler/{id}).
+
             async function deleteSchedule(server, schedule) {
                 try {
                     const res = await fetch(baseUrl(server) + "/scheduler/" + encodeURIComponent(schedule.id), { method: "DELETE" });
@@ -2949,6 +3289,8 @@
                     addEventLogEntry(server, "error", schedule.zone, "Hapus jadwal: server tidak dapat dihubungi.", "Error");
                 }
             }
+
+            // Jalankan jadwal secara manual (POST /scheduler/{id}/trigger).
 
             async function triggerSchedule(server, schedule) {
                 try {
@@ -3045,6 +3387,8 @@
                 }
             }
 
+            // Kosongkan form TTS (type/text/file/engine/voice/chime/pengaturan).
+
             function clearTtsForm() {
                 const active = activeServerId ? getServerById(activeServerId) : null;
                 el.ttsType.value = "tts";
@@ -3065,6 +3409,8 @@
                 el.ttsVolume.value = "1.0";
                 el.ttsResult.textContent = "";
             }
+
+            // Tampilkan/sembunyikan field text vs file sesuai tipe TTS (tts/audio).
 
             function updateTtsTypeFields() {
                 const isAudio = el.ttsType.value === "audio";
@@ -3092,6 +3438,8 @@
                 }
             }
 
+            // Set device output global (POST /device {device_id}).
+
             async function setGlobalDevice(server, deviceId) {
                 try {
                     const res = await fetch(baseUrl(server) + "/device", {
@@ -3109,6 +3457,8 @@
                 }
             }
 
+            // Set device output per zone (POST /zones/{name}/device).
+
             async function setZoneDevice(server, zoneName, deviceId) {
                 try {
                     await fetch(baseUrl(server) + "/zones/" + encodeURIComponent(zoneName) + "/device", {
@@ -3121,6 +3471,8 @@
                     // noop
                 }
             }
+
+            // Petakan tipe event WebSocket/UI ke kategori log.
 
             function categoryForEvent(eventType) {
                 switch (eventType) {
@@ -3149,6 +3501,8 @@
                 }
             }
 
+            // Tambahkan entri ke event log server (dibatasi EVENT_LOG_MAX) lalu render.
+
             function addEventLogEntry(server, event, zone, detail, category) {
                 server.eventLog.push({
                     event: event,
@@ -3162,6 +3516,163 @@
                 }
                 if (server.id === activeServerId) renderEventLog();
             }
+
+            // ---------------------------------------------------------------------
+            // API Terminal — log SEMUA request HTTP + response (patch window.fetch)
+            // ---------------------------------------------------------------------
+            function prettyJsonText(raw) {
+                if (!raw) return raw;
+                try {
+                    return JSON.stringify(JSON.parse(raw), null, 2);
+                } catch (err) {
+                    return raw; // bukan JSON (mis. teks error) — tampilkan apa adanya
+                }
+            }
+
+            // Potong body panjang ke API_BODY_MAX_CHARS karakter + penanda terpotong.
+            function truncateBody(text) {
+                if (text && text.length > API_BODY_MAX_CHARS) {
+                    return text.slice(0, API_BODY_MAX_CHARS) + "\n… (terpotong)";
+                }
+                return text;
+            }
+
+            // Tambahkan entri ke log API Terminal (buang yang melebihi API_LOG_MAX) lalu render.
+            function pushApiLogEntry(entry) {
+                apiLog.push(entry);
+                if (apiLog.length > API_LOG_MAX) {
+                    const removed = apiLog.splice(0, apiLog.length - API_LOG_MAX);
+                    removed.forEach((e) => apiLogExpanded.delete(e.id));
+                }
+                renderApiLog();
+            }
+
+            // Interceptor fetch: mencatat method+URL+request body, lalu status+durasi+
+            // response body. Response asli TIDAK diganggu (body dibaca via clone()).
+            (function installApiFetchLogging() {
+                const origFetch = window.fetch;
+                window.fetch = async function (input, init) {
+                    const url = typeof input === "string" ? input : (input && input.url) || String(input);
+                    const method = ((init && init.method) || "GET").toUpperCase();
+                    const entry = {
+                        id: ++apiLogSeq,
+                        time: new Date().toLocaleTimeString(),
+                        method: method,
+                        url: url,
+                        status: null,
+                        durationMs: null,
+                        requestBody: null,
+                        responseBody: null,
+                        error: null
+                    };
+                    if (init && init.body != null) {
+                        entry.requestBody = truncateBody(prettyJsonText(String(init.body)));
+                    }
+                    const startedAt = performance.now();
+                    try {
+                        const res = await origFetch(input, init);
+                        entry.status = res.status;
+                        entry.durationMs = Math.round(performance.now() - startedAt);
+                        try {
+                            const text = await res.clone().text();
+                            entry.responseBody = truncateBody(prettyJsonText(text));
+                        } catch (err) {
+                            entry.responseBody = "(response body tidak dapat dibaca)";
+                        }
+                        pushApiLogEntry(entry);
+                        return res;
+                    } catch (err) {
+                        entry.status = 0;
+                        entry.durationMs = Math.round(performance.now() - startedAt);
+                        entry.error = String((err && err.message) || err);
+                        pushApiLogEntry(entry);
+                        throw err;
+                    }
+                };
+            })();
+
+            // Kelas CSS badge status: ok (2xx), warn (4xx), err (5xx/network error).
+            function apiStatusClass(status) {
+                if (status === null) return "";
+                if (status === 0 || status >= 500) return "err";
+                if (status >= 400) return "warn";
+                return "ok";
+            }
+
+            // Render tab API Terminal sesuai filter 'Termasuk GET' + auto-scroll.
+            function renderApiLog() {
+                const showGet = el.apiShowGet.checked;
+                const filtered = showGet ? apiLog : apiLog.filter((e) => e.method !== "GET");
+                if (filtered.length === 0) {
+                    el.apiLog.innerHTML = '<div class="empty">' +
+                        (apiLog.length === 0
+                            ? "Belum ada request. Lakukan tindakan (send speak, buat jadwal, dll) untuk melihat request &amp; response API di sini."
+                            : "Tidak ada request selain GET pada filter ini — centang 'Termasuk GET'.") +
+                        "</div>";
+                    return;
+                }
+                const rows = filtered.map((e) => {
+                    const detail = [];
+                    if (e.requestBody != null) {
+                        detail.push('<div class="label">Request Body</div><pre>' + escapeHtml(e.requestBody) + "</pre>");
+                    }
+                    if (e.error) {
+                        detail.push('<div class="label">Error</div><pre>' + escapeHtml(e.error) + "</pre>");
+                    }
+                    if (e.responseBody != null) {
+                        detail.push('<div class="label">Response</div><pre>' + escapeHtml(e.responseBody) + "</pre>");
+                    }
+                    if (detail.length === 0) {
+                        detail.push('<div class="label">Detail</div><pre>(tidak ada body)</pre>');
+                    }
+                    return '<div class="api-row' + (apiLogExpanded.has(e.id) ? " open" : "") + '" data-id="' + e.id + '">' +
+                        '<div class="api-row-header">' +
+                        '<span class="api-method ' + escapeHtml(e.method) + '">' + escapeHtml(e.method) + "</span>" +
+                        '<span class="api-status ' + apiStatusClass(e.status) + '">' + (e.status === null ? "…" : escapeHtml(String(e.status))) + "</span>" +
+                        (e.durationMs !== null ? '<span class="api-duration">' + e.durationMs + "ms</span>" : "") +
+                        '<span class="api-url">' + escapeHtml(e.url) + "</span>" +
+                        '<button class="secondary small-btn api-copy-btn" data-copy="' + e.id + '">Salin</button>' +
+                        '<span class="api-time">' + escapeHtml(e.time) + "</span>" +
+                        "</div>" +
+                        '<div class="api-detail">' + detail.join("") + "</div>" +
+                        "</div>";
+                });
+                el.apiLog.innerHTML = rows.join("");
+                if (el.apiAutoScroll.checked) {
+                    el.apiLog.scrollTop = el.apiLog.scrollHeight;
+                }
+            }
+
+            // Salin satu entri API (JSON lengkap) ke clipboard.
+            function copyApiEntry(id) {
+                const entry = apiLog.find((e) => e.id === id);
+                if (!entry) return;
+                const text = JSON.stringify({
+                    time: entry.time,
+                    method: entry.method,
+                    url: entry.url,
+                    status: entry.status,
+                    duration_ms: entry.durationMs,
+                    request: entry.requestBody,
+                    response: entry.error ? entry.error : entry.responseBody
+                }, null, 2);
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).catch(() => { });
+                } else {
+                    const ta = document.createElement("textarea");
+                    ta.value = text;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    try {
+                        document.execCommand("copy");
+                    } catch (err) {
+                        // clipboard tidak tersedia — abaikan.
+                    }
+                    document.body.removeChild(ta);
+                }
+            }
+
+            // Ringkas detail event WebSocket untuk baris log.
 
             function detailForEvent(eventType, data) {
                 switch (eventType) {
@@ -3183,6 +3694,8 @@
 
             // Memetakan event playback (speaking/idle/pause/resume) ke PlaybackState
             // (idle/playing/paused) sesuai semantik pada playback/manager.py.
+            // Terapkan event realtime (queue_changed/speaking/idle/pause/resume/finished) ke data zone.
+
             function playbackStateForEvent(eventType) {
                 switch (eventType) {
                     case "speaking":
@@ -3215,6 +3728,8 @@
             // ---------------------------------------------------------------------
             // WebSocket — connect / reconnect aman / disconnect
             // ---------------------------------------------------------------------
+            // WebSocket — connect / reconnect aman / disconnect
+
             function openWebSocket(server) {
                 // Guard: cegah koneksi WebSocket ganda untuk server yang sama.
                 if (server.ws && (server.ws.readyState === WebSocket.OPEN || server.ws.readyState === WebSocket.CONNECTING)) {
@@ -3249,6 +3764,7 @@
                     refreshSchedules(server);
                     refreshEngines(server);
                     refreshVoices(server);
+                    refreshChimes(server);
                     startMetricsAutoRefresh(server);
                 };
 
@@ -3317,6 +3833,8 @@
                 };
             }
 
+            // Jadwalkan reconnect WebSocket dengan backoff eksponensial.
+
             function scheduleReconnect(server) {
                 server.wsStatus = "reconnecting";
                 if (server.id === activeServerId) renderActiveBanner();
@@ -3329,6 +3847,8 @@
                 }, delay);
             }
 
+            // Tutup WebSocket secara manual (tanpa auto-reconnect).
+
             function closeWebSocket(server) {
                 clearTimeout(server.reconnectTimer);
                 server.reconnectTimer = null;
@@ -3340,6 +3860,8 @@
                 server.ws = null;
                 server.wsStatus = "disconnected";
             }
+
+            // Reset seluruh data runtime server (zone/queue/history/discovery/dll).
 
             function resetServerRuntimeState(server) {
                 server.httpStatus = "unknown";
@@ -3393,6 +3915,8 @@
                 openWebSocket(target);
             }
 
+            // Putuskan server aktif: hentikan polling, tutup WS, reset state.
+
             function disconnect() {
                 stopHealthPolling();
                 stopMetricsAutoRefresh();
@@ -3409,6 +3933,8 @@
             // ---------------------------------------------------------------------
             // Manajemen daftar server
             // ---------------------------------------------------------------------
+            // Hapus server dari daftar (termasuk disconnect bila sedang aktif) lalu simpan.
+
             function addServer() {
                 const label = el.newLabel.value.trim();
                 const host = el.newHost.value.trim();
@@ -3622,10 +4148,38 @@
             el.logCategoryFilter.addEventListener("change", renderEventLog);
             el.logAutoScroll.addEventListener("change", renderEventLog);
 
+            // --- API Terminal ---
+            el.apiShowGet.addEventListener("change", renderApiLog);
+            el.apiAutoScroll.addEventListener("change", renderApiLog);
+            el.btnClearApiLog.addEventListener("click", () => {
+                apiLog = [];
+                apiLogExpanded = new Set();
+                renderApiLog();
+            });
+            el.apiLog.addEventListener("click", (ev) => {
+                const copyBtn = ev.target.closest(".api-copy-btn");
+                if (copyBtn) {
+                    ev.stopPropagation();
+                    copyApiEntry(parseInt(copyBtn.getAttribute("data-copy"), 10));
+                    return;
+                }
+                const row = ev.target.closest(".api-row");
+                if (row) {
+                    const id = parseInt(row.getAttribute("data-id"), 10);
+                    if (apiLogExpanded.has(id)) {
+                        apiLogExpanded.delete(id);
+                    } else {
+                        apiLogExpanded.add(id);
+                    }
+                    renderApiLog();
+                }
+            });
+
             // Init
             updateTtsTypeFields();
             updateSchedulerRecurrenceRows();
             renderAll();
+            renderApiLog();
         })();
     </script>
 

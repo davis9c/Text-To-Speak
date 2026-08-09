@@ -36,6 +36,7 @@ class TTSService:
     """Orkestrator pipeline TTS: pilih engine -> cache -> engine -> post-processing -> cache."""
 
     def __init__(self, config: TTSConfig, *, engine_manager: TTSEngineManager | None = None) -> None:
+        """Membangun engine manager (atau memakai yang di-inject), cache audio, dan processor audio."""
         self._config = config
         # `engine_manager` bersifat opsional (dependency injection untuk test) —
         # perilaku default (tidak diberikan) membangun TTSEngineManager dari

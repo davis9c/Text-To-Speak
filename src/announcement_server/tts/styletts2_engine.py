@@ -80,6 +80,12 @@ class StyleTTS2Engine(TTSEngine):
     """Engine TTS berbasis StyleTTS2 (voice cloning dari referensi audio terkurasi)."""
 
     def __init__(self, config: TTSConfig) -> None:
+        """Menyimpan path checkpoint/config/voices_dir, diffusion_steps, dan retry dari ``config``.
+
+        Model TIDAK dimuat di sini (lazy load) karena loading checkpoint
+        StyleTTS2 berat (PyTorch, bisa berukuran GB) dan tidak boleh memblokir
+        konstruktor manager yang sinkron -- dimuat pada panggilan pertama.
+        """
         self._checkpoint_path = config.styletts2_checkpoint_path
         self._config_path = config.styletts2_config_path
         self._voices_dir = Path(config.styletts2_voices_dir)
@@ -113,6 +119,14 @@ class StyleTTS2Engine(TTSEngine):
         )
 
     async def _ensure_model_loaded(self) -> object:
+        """Memastikan model StyleTTS2 termuat (memoized, double-checked locking).
+
+        Jika model belum pernah dimuat, dimuat sekali lewat ``asyncio.to_thread``
+        di bawah ``_model_lock`` agar request bersamaan tidak memicu load ganda.
+
+        Raises:
+            TTSEngineNotAvailableError: Jika model gagal dimuat.
+        """
         if self._model is not None:
             return self._model
         async with self._model_lock:
@@ -168,6 +182,11 @@ class StyleTTS2Engine(TTSEngine):
         return buffer.getvalue()
 
     def _run_inference_sync(self, model: object, text: str, voice_path: Path) -> bytes:
+        """Menjalankan ``model.inference()`` (operasi sinkron & berat) dan mengonversi hasil ke WAV bytes.
+
+        HARUS dipanggil lewat ``asyncio.to_thread`` (dilakukan oleh
+        ``_synthesize_once``) agar tidak memblokir event loop.
+        """
         audio_array = model.inference(
             text,
             target_voice_path=str(voice_path),
@@ -180,6 +199,13 @@ class StyleTTS2Engine(TTSEngine):
         return self._numpy_to_wav_bytes(audio_array, _OUTPUT_SAMPLE_RATE)
 
     async def synthesize(self, *, text: str, voice: str, speed: float) -> bytes:  # noqa: ARG002 - `speed` diterima
+        """Menghasilkan audio dari teks via StyleTTS2, dibungkus retry dengan backoff.
+
+        ``speed`` diterima sesuai kontrak ``TTSEngine`` tapi sengaja diabaikan
+        (StyleTTS2 tidak punya kontrol speed pada API inference resminya).
+        Resolusi voice & load model dilakukan DI LUAR retry scope -- keduanya
+        kegagalan permanen yang tidak akan berbeda hasilnya jika diulang.
+        """
         # sesuai kontrak TTSEngine tapi SENGAJA diabaikan (lihat docstring modul & riset Phase 9/10:
         # StyleTTS2 tidak punya kontrol speed pada API inference resminya).
         return await retry_with_backoff(
@@ -191,6 +217,13 @@ class StyleTTS2Engine(TTSEngine):
         )
 
     async def _synthesize_once(self, *, text: str, voice: str) -> bytes:
+        """Eksekusi tunggal sintesis StyleTTS2 (tanpa retry).
+
+        Raises:
+            VoiceNotFoundError: Jika file referensi voice tidak ditemukan/tidak valid.
+            TTSEngineNotAvailableError: Jika model gagal dimuat.
+            TTSGenerationError: Jika inference gagal menghasilkan audio.
+        """
         # Resolusi voice & load model dilakukan DI LUAR retry scope -- keduanya kegagalan
         # PERMANEN (voice salah / model gagal dimuat tidak akan berbeda hasilnya jika
         # diulang), persis pola VoiceNotFoundError/TTSEngineNotAvailableError pada
@@ -214,6 +247,12 @@ class StyleTTS2Engine(TTSEngine):
         return await asyncio.to_thread(self._discover_voices_sync)
 
     def _discover_voices_sync(self) -> list[VoiceProfile]:
+        """Scan sinkron ``styletts2_voices_dir`` untuk file ``.wav`` (dijalankan via ``asyncio.to_thread``).
+
+        Setiap file menjadi satu ``VoiceProfile`` dengan ``available=True``;
+        ``language``/``gender`` selalu ``None`` karena tidak dapat diketahui
+        dari file audio referensi (tidak ditebak).
+        """
         if not self._voices_dir.exists():
             return []
 

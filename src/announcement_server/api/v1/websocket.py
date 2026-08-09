@@ -38,10 +38,12 @@ router = APIRouter(tags=["WebSocket"])
 
 
 def get_zone_manager_ws(websocket: WebSocket) -> ZoneManager:
+    """Mengambil ZoneManager dari ``app.state`` untuk route WebSocket (parameter ``WebSocket``, bukan ``Request``)."""
     return websocket.app.state.zone_manager
 
 
 def get_connection_manager_ws(websocket: WebSocket) -> ConnectionManager:
+    """Mengambil ConnectionManager dari ``app.state`` untuk route WebSocket (parameter ``WebSocket``, bukan ``Request``)."""
     return websocket.app.state.connection_manager
 
 
@@ -53,6 +55,11 @@ ConnectionManagerWsDep = Annotated[ConnectionManager, Depends(get_connection_man
 async def websocket_status(
     websocket: WebSocket, zone_manager: ZoneManagerWsDep, connection_manager: ConnectionManagerWsDep
 ) -> None:
+    """Mengelola koneksi WebSocket push status: kirim snapshot awal lalu seluruh event secara real-time.
+
+    Koneksi murni push — pesan dari client hanya dipakai mendeteksi pemutusan koneksi;
+    cleanup registry tetap berjalan walau koneksi diputus atau terjadi error tak terduga.
+    """
     await connection_manager.connect(websocket)
     try:
         zones = zone_manager.list_zones()

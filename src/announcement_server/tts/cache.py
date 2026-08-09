@@ -24,6 +24,7 @@ class AudioCache:
     """Cache file audio berbasis SHA256 di filesystem."""
 
     def __init__(self, cache_dir: Path) -> None:
+        """Menyimpan direktori cache dan memastikan direktori tersebut ada (dibuat jika belum ada)."""
         self._cache_dir = cache_dir
         self._cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -47,6 +48,7 @@ class AudioCache:
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def path_for(self, cache_key: str) -> Path:
+        """Path file WAV di direktori cache untuk sebuah cache key (``<cache_key>.wav``)."""
         return self._cache_dir / f"{cache_key}.wav"
 
     async def get(self, cache_key: str) -> Path | None:
@@ -67,6 +69,7 @@ class AudioCache:
         tmp_path = final_path.with_suffix(".tmp")
 
         def _write() -> None:
+            """Menulis bytes ke file sementara lalu meng-rename ke path final (atomic replace)."""
             tmp_path.write_bytes(audio_bytes)
             tmp_path.replace(final_path)
 

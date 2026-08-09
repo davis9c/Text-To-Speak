@@ -181,6 +181,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.metrics_collector = metrics_collector
 
     async def _fanout_event(event_type: str, data: dict) -> None:
+        """Fan-out event ke SEMUA listener (WebSocket broadcast + metrics).
+
+        Kegagalan SATU listener tidak boleh menggagalkan listener lain
+        (Exception Handling, Phase 14).
+        """
         # Exception Handling (Phase 14): kegagalan SATU listener (mis. bug di
         # MetricsCollector) tidak boleh menggagalkan listener lain ATAUPUN
         # proses Queue/Playback yang memanggil `on_event` ini.
@@ -300,6 +305,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # tidak membuat proses shutdown menggantung selamanya — uvicorn/NSSM (Phase 12)
     # pada akhirnya akan memaksa terminate proses jika ini juga timeout.
     async def _graceful_shutdown() -> None:
+        """Menghentikan scheduler & seluruh zone secara graceful saat shutdown (dibungkus timeout)."""
         await scheduler_manager.shutdown()
         await zone_manager.shutdown()
 
