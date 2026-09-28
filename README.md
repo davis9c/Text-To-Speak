@@ -1,13 +1,25 @@
 # Announcement Server
 
-Production Ready Text-to-Speech Announcement Server berbasis Python untuk Windows.
-Menerima request HTTP, mengantrekan pengumuman, mengubah teks menjadi suara
-(offline, multi-engine), memutar audio ke sistem TOA, serta mendukung Public
-Address (PA) multi-zona.
+Server pengumuman Text-to-Speech offline yang siap produksi untuk sistem Public Address (PA/TOA) berbasis Windows. Server ini menyediakan HTTP API untuk mengantrekan pengumuman, mensintesis suara secara lokal (tanpa ketergantungan cloud), memutar audio ke perangkat output yang dipilih, serta mendukung banyak zona audio independen, pengumuman terjadwal, dan status real-time lewat WebSocket.
 
 > **Version:** 2.0.0 — Multi-Engine TTS Platform. Arsitektur TTS generic lewat `TTSEngine`/`TTSEngineManager`/`EngineFactory`, mendukung lebih dari satu engine sekaligus: **Piper** (default), **eSpeak NG** (opsional), dan **StyleTTS2** (opsional, neural/voice-cloning) — lengkap dengan Voice Registry & Engine Capability discovery (`GET /tts/engines`, `GET /tts/voices`). Seluruh fitur inti tetap berjalan tanpa perubahan — lihat [Multi-Engine TTS (V2)](#multi-engine-tts-v2) dan [Backward Compatibility](#backward-compatibility).
 
 ---
+
+## Fitur
+
+- **Multi-engine Text-to-Speech** — arsitektur generic lewat kontrak `TTSEngine`; beberapa engine aktif **berdampingan** dan dipilih per-request lewat field `engine`. Bawaan: [Piper](https://github.com/rhasspy/piper) (default, offline), opsional: **eSpeak NG** (ringan, built-in voice) dan **StyleTTS2** (neural, voice-cloning). Sintesis sepenuhnya offline dengan voice, kecepatan, pitch, dan volume yang dapat dikonfigurasi — lihat [Multi-Engine TTS (V2)](#multi-engine-tts-v2).
+- **Discovery engine & voice** — `GET /tts/engines` dan `GET /tts/voices` melaporkan engine aktif, kapabilitas native tiap engine, dan seluruh voice yang terdeteksi, sehingga client tidak perlu menebak nama voice.
+- **Playback audio statis** — memutar file suara yang sudah ada (bell, alarm, jingle, WAV/MP3/dst) berdampingan dengan pengumuman TTS.
+- **Antrean berprioritas** — pengumuman diproses berdasarkan urutan prioritas (`urgent` > `high` > `normal` > `low`), lalu FIFO.
+- **Audio multi-zona** — menjalankan beberapa jalur audio independen (queue + worker + output device) dari satu instance server, masing-masing dengan volume sendiri.
+- **Scheduler** — memicu pengumuman otomatis secara harian, mingguan, atau sekali waktu.
+- **Status WebSocket real-time** — update berbasis push (tanpa polling) untuk perubahan antrean, status playback, dan item yang selesai diproses.
+- **Endpoint dashboard/monitoring** — status, riwayat, dan metrik teragregasi untuk dashboard eksternal.
+- **Efek chime** — file audio pendek (mis. "ding-dong") yang diputar sekali **sebelum** pengumuman utama, opsional per-request, dan ikut dikenai `volume` yang sama. Daftar chime tersedia tersedia lewat `GET /chimes`.
+- **Cache audio** — audio hasil sintesis dan konversi disimpan di cache (berbasis SHA256) sehingga pengumuman yang berulang tidak perlu menjalankan ulang TTS/ffmpeg.
+- **Graceful degradation** — server tetap dapat berjalan dan melayani sebagian besar endpoint meskipun Piper, ffmpeg, atau driver audio belum terpasang/salah konfigurasi.
+- **Dukungan Windows Service** — dapat dipasang sebagai Windows Service yang auto-start dan auto-restart lewat NSSM.
 
 ## 📌 NOTICE — Perubahan 2.0.0
 
@@ -989,6 +1001,49 @@ Endpoint read-only untuk monitoring/dashboard eksternal — murni agregasi dari 
 404 jika tidak ada), `status` (default: seluruh status final), `limit`
 (default 100, maksimum 1000).
 
+## Konfigurasi Port
+
+Port HTTP default adalah:
+
+```
+http://localhost:8000
+```
+
+Port dibaca dari `server.port` di `config/config.yaml`, dan dapat diubah lewat salah satu cara berikut:
+
+**1. Edit `config/config.yaml`:**
+
+```yaml
+server:
+  port: 8080
+```
+
+**2. Set environment variable `APP_SERVER__PORT`** (meng-override `config.yaml`):
+
+```bash
+# Linux / macOS
+export APP_SERVER__PORT=8080
+uvicorn announcement_server.main:app
+
+# Windows (cmd)
+set APP_SERVER__PORT=8080
+python -m uvicorn announcement_server.main:app --host 0.0.0.0 --port 8080
+```
+
+**3. Berikan flag `--port` langsung ke uvicorn** (saat menjalankan secara manual, bukan lewat `run.bat`):
+
+```bash
+uvicorn announcement_server.main:app --host 0.0.0.0 --port 8080
+```
+
+Hasil dengan port kustom:
+
+```
+http://localhost:8080
+```
+
+> Catatan: `run.bat` dan `install_service.bat` menjalankan uvicorn dengan `--port 8000` yang di-hardcode. Untuk memakai port berbeda lewat script ini, ubah nilai `--port` di dalam script, atau set `server.port` di `config/config.yaml` dan hapus flag `--port` agar uvicorn memakai nilai dari konfigurasi.
+
 ## Konfigurasi
 
 Konfigurasi utama ada di [`config/config.yaml`](config/config.yaml). Semua
@@ -1160,8 +1215,26 @@ Tidak ada breaking change — field baru selalu **opsional** dengan default yang
 - Menambah engine BARU (di luar 3 engine bawaan) tidak memerlukan perubahan kontrak API/Core sama sekali — lihat [Cara Menambah Engine Baru](#cara-menambah-engine-baru).
 - Endpoint root-level (`/speak`, `/queue`, `/devices`, dll) dan endpoint prefixed (`/zones/*`, `/scheduler/*`, `/tts/*`, `/maintenance/*`) sengaja hidup berdampingan dengan pola URL berbeda — ini permanen, bukan inkonsistensi yang akan "diperbaiki" di rilis mendatang.
 
+## Troubleshooting
+
+> Untuk masalah yang muncul saat baru mencoba API lewat Postman (mis. koneksi ditolak, voice tidak ditemukan), lihat tabel [Troubleshooting cepat (untuk pemula)](#troubleshooting-cepat-untuk-pemula) di bagian panduan Postman. Daftar di bawah ini bersifat umum/operator.
+
+- **Item `POST /speak` gagal dengan error TTS** — engine yang dipakai belum terpasang atau salah konfigurasi. Untuk Piper, periksa `tts.piper_binary_path` dan `tts.piper_models_dir` di `config/config.yaml`, dan pastikan nama voice di `tts.default_voice` sesuai dengan file model yang diunduh. Untuk eSpeak NG/StyleTTS2, cek path binary/checkpoint masing-masing.
+- **Request mengembalikan `503` dengan "Engine TTS '...' tidak tersedia"** — nama `engine` tidak terdaftar, atau engine tersebut tidak ada di `tts.additional_engines`. Cek daftar yang valid lewat `GET /tts/engines`. Request tanpa `engine` tidak akan kena error ini (memakai engine default server).
+- **Voice tidak ditemukan padahal file model sudah ada** — nama voice spesifik per-engine dan tidak bisa dipertukarkan. Validasi yang benar ada di `GET /tts/voices/{engine}`, bukan `/tts/voices` tanpa filter.
+- **Pengumuman bertipe audio gagal untuk file non-WAV** — ffmpeg belum terpasang atau tidak ada di `PATH`. File `.wav` selalu berfungsi tanpa ffmpeg.
+- **`/devices`, `/device`, `/pause`, `/resume`, `/stop` mengembalikan error** — tidak ada perangkat/driver output audio yang terdeteksi saat server startup. Endpoint lain tetap berfungsi normal.
+- **Chime tidak berbunyi padahal pengumuman utama berbunyi** — ini *best-effort* by design. File chime hilang/tidak bisa di-resolve/gagal diputar hanya tercatat sebagai warning di log dan tidak menggagalkan item. Cek `logs/announcement_server.log` dan pastikan path chime benar (lihat `GET /chimes`).
+- **Volume tidak seperti yang diharapkan** — `volume` per-item dan volume per-zone itu **berlipat**, bukan saling menimpa. Lihat tabel "Tujuan volume" di [Bagaimana Zone volume diterapkan](#bagaimana-zone-volume-diterapkan).
+- **Pengumuman terjadwal tidak terpicu pada waktu lokal yang diharapkan** — periksa `scheduler.timezone` di `config/config.yaml`. Jika memakai nama zona IANA eksplisit (mis. `"Asia/Jakarta"`) di Windows, pastikan paket `tzdata` sudah terpasang (sudah termasuk di `requirements.txt`).
+- **Perubahan port tidak berpengaruh** — jika menjalankan lewat `run.bat` atau `install_service.bat`, port dikirim secara eksplisit lewat flag command-line (`--port 8000`) yang meng-override `config.yaml`; ubah script tersebut atau hapus flag-nya seperti dijelaskan di [Konfigurasi Port](#konfigurasi-port).
+
 ## Known Limitations & Future Development
 
 **Keterbatasan yang diketahui** (bukan bug — keputusan desain yang terdokumentasi): `tts.default_voice` belum sadar-engine (fallback voice hanya cocok untuk Piper — selalu kirim `voice` eksplisit saat memilih engine lain; jika default tidak tersedia di engine yang dipakai, server memakai voice pertama yang tersedia dengan peringatan di log, lihat [Uji Coba API dengan Postman](#uji-coba-api-dengan-postman-panduan-pemula)); `EngineInfo.available` mencerminkan status inisialisasi saat startup, bukan health-check real-time; `QueueItemResponse.audio_file_path` dan `CacheStatsResponse.directory` mengekspos path server-lokal; hook `initialize()`/`shutdown()` pada `TTSEngine` belum di-wire ke siklus startup/shutdown `TTSEngineManager`/`main.py` (StyleTTS2 saat ini sepenuhnya mengandalkan lazy-loading via `synthesize()` pertama, bukan `initialize()` eksplisit).
 
 **Pengembangan berikutnya** (di luar cakupan rilis ini): HTML Client, Browser/Desktop Player, Remote Audio Endpoint, Emergency Broadcast, MQTT/gRPC, autentikasi & otorisasi.
+
+## Lisensi
+
+Repository ini belum menyertakan file lisensi. Hubungi maintainer project untuk ketentuan penggunaan.
