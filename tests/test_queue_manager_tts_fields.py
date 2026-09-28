@@ -31,7 +31,7 @@ async def test_enqueue_stores_tts_params(manager: QueueManager) -> None:
 
 
 async def test_enqueue_without_engine_defaults_to_none(manager: QueueManager) -> None:
-    """Backward compat V1: pemanggilan lama yang tidak pernah tahu soal `engine` tetap berperilaku sama."""
+    """Backward compat: pemanggilan yang tidak pernah tahu soal `engine` tetap berperilaku sama."""
     item = await manager.enqueue("Halo", QueuePriority.NORMAL)
     assert item.engine is None
 

@@ -119,7 +119,13 @@ async def get_history(
     items: list[HistoryItemResponse] = []
     for zone_name in zone_names:
         queue_manager = zone_manager.get_queue_manager(zone_name)
-        zone_items = await queue_manager.list_items(statuses=statuses)
+        # Hanya `limit` item terbaru per zone yang diambil, bukan seluruh riwayat
+        # zone itu. Karena hasil akhir tetap diurutkan & dipotong ke `limit`, dan
+        # tiap zone berkontribusi paling banyak `limit` item, ini memberi jawaban
+        # yang sama persis dengan mengambil seluruh riwayat — tanpa menyalin
+        # ribuan `QueueItem` yang kemudian dibuang (lihat
+        # `QueueManager.list_items_recent`).
+        zone_items = await queue_manager.list_items_recent(statuses=statuses, limit=limit)
         items.extend(HistoryItemResponse.from_item(item, zone=zone_name) for item in zone_items)
 
     items.sort(key=lambda i: i.updated_at, reverse=True)
@@ -148,8 +154,12 @@ async def get_metrics(
     totals: dict[str, int] = {}
     for zone in zones:
         queue_manager = zone_manager.get_queue_manager(zone.name)
-        for item in await queue_manager.list_items():
-            totals[item.status.value] = totals.get(item.status.value, 0) + 1
+        # `count_by_status()` hanya menghitung — tidak menyalin tiap item
+        # sebagai `model_copy()` pydantic seperti yang terjadi kalau endpoint ini
+        # memakai `list_items()` lalu `len()`. Dievaluasi ulang tiap polling
+        # monitoring, jadi selisihnya terasa nyata.
+        for status, count in (await queue_manager.count_by_status()).items():
+            totals[status.value] = totals.get(status.value, 0) + count
 
     active_schedules = sum(1 for schedule in scheduler_manager.list_schedules() if schedule.enabled)
 

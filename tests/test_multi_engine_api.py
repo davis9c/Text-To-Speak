@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 
 def test_speak_without_engine_field_is_backward_compatible(client: TestClient) -> None:
-    """Payload V1 (tanpa `engine`) HARUS tetap diterima, `engine` pada response bernilai null."""
+    """Payload tanpa `engine` HARUS tetap diterima, `engine` pada response bernilai null."""
     response = client.post("/speak", json={"text": "Halo dunia"})
     assert response.status_code == 201
     body = response.json()

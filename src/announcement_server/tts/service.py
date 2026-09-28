@@ -20,16 +20,30 @@ Alur pipeline:
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from pathlib import Path
 
 from announcement_server.core.config import TTSConfig
+from announcement_server.core.exceptions import VoiceNotFoundError
 from announcement_server.tts.audio_processor import AudioProcessor
 from announcement_server.tts.cache import AudioCache
+from announcement_server.tts.engine_base import TTSEngine
 from announcement_server.tts.engine_manager import TTSEngineManager
 from announcement_server.tts.models import TTSResult
 
 logger = logging.getLogger(__name__)
+
+# TTL memo daftar voice yang tersedia per engine (lihat `_available_voice_ids`).
+# Voice discovery BUKAN operasi gratis: `PiperEngine` memindai direktori model dan
+# mem-parse JSON config tiap model, sedangkan `EspeakEngine` MENJALANKAN subprocess
+# `espeak-ng --voices`. Tanpa memo, SETIAP cache miss untuk voice default akan
+# membayar biaya discovery itu — di jalur terpanas server ini (tiap pengumuman
+# unik). TTL pendek dipilih sebagai titik kompromi: cukup untuk memangkas hampir
+# seluruh discovery berulang, tapi tetap membuat voice yang baru diunduh operator
+# terbaca tanpa restart server.
+_VOICE_DISCOVERY_TTL_SECONDS = 30.0
 
 
 class TTSService:
@@ -45,6 +59,10 @@ class TTSService:
         self._engine_manager = engine_manager if engine_manager is not None else TTSEngineManager(config)
         self._cache = AudioCache(Path(config.cache_dir))
         self._processor = AudioProcessor()
+        # Memo TTL: nama engine -> (id voice yang tersedia dalam urutan asli, waktu pengambilan).
+        # Urutan asli disimpan karena fallback default voice memakai voice PERTAMA
+        # yang tersedia (lihat `synthesize`), jadi tidak boleh diacak/diurutkan ulang.
+        self._available_voices_memo: dict[str, tuple[tuple[str, ...], float]] = {}
 
     @property
     def engine_manager(self) -> TTSEngineManager:
@@ -90,13 +108,9 @@ class TTSService:
         # peringatan jelas di log. Request dengan `voice` EKSPLISIT tetap gagal dengan
         # VoiceNotFoundError (semantik terdokumentasi tidak berubah).
         if effective_voice == self._config.default_voice:
-            try:
-                available = [v for v in await tts_engine.list_voices() if v.available]
-            except Exception as exc:  # noqa: BLE001 — discovery gagal tidak boleh mematikan sintesis
-                logger.warning("Voice discovery gagal saat fallback default voice: %s", exc)
-                available = []
-            if available and not any(v.id == effective_voice for v in available):
-                fallback_voice = available[0].id
+            available = await self._available_voice_ids(resolved_engine_name, tts_engine)
+            if available and effective_voice not in available:
+                fallback_voice = available[0]
                 logger.warning(
                     "default_voice '%s' tidak tersedia di engine '%s' — fallback ke voice '%s'. "
                     "Perbaiki tts.default_voice pada config.yaml agar memakai voice yang diinginkan.",
@@ -126,13 +140,64 @@ class TTSService:
         logger.info(
             "TTS cache MISS: key=%s voice=%s -> memanggil engine '%s'", cache_key[:12], effective_voice, resolved_engine_name
         )
-        raw_audio = await tts_engine.synthesize(text=text, voice=effective_voice, speed=speed)
+        try:
+            raw_audio = await tts_engine.synthesize(text=text, voice=effective_voice, speed=speed)
+        except VoiceNotFoundError:
+            # Daftar voice yang di-cache sudah usang (mis. model baru ditambahkan/
+            # dihapus operator). Buang memo supaya penentuan fallback pada
+            # request berikutnya memakai keadaan disk yang sebenarnya.
+            self._available_voices_memo.pop(resolved_engine_name, None)
+            raise
 
-        processed_audio = self._processor.apply_volume(raw_audio, volume)
-        processed_audio = self._processor.apply_pitch(processed_audio, pitch)
+        processed_audio = await self._post_process(raw_audio, volume=volume, pitch=pitch)
 
         stored_path = await self._cache.put(cache_key, processed_audio)
         return TTSResult(audio_file_path=str(stored_path), cache_hit=False)
+
+    async def _available_voice_ids(self, engine_name: str, engine: TTSEngine) -> tuple[str, ...]:
+        """Id voice yang tersedia pada ``engine``, dalam urutan yang dikembalikan engine.
+
+        Memoized per engine selama ``_VOICE_DISCOVERY_TTL_SECONDS`` — lihat catatan
+        pada konstanta itu untuk alasan kenapa discovery tidak dipanggil ulang
+        pada setiap cache miss.
+
+        Mengembalikan tuple KOSONG jika discovery gagal: pemanggil memperlakukannya
+        sebagai "tidak ada informasi" (tanpa fallback), persis seperti perilaku
+        sebelum memo ini ada. Kegagalan SENGAJA TIDAK di-memo, supaya error sementara
+        (mis. drive NAS sempat tidak terjangkau) tidak terkunci sampai TTL habis.
+        """
+        now = time.monotonic()
+        memoized = self._available_voices_memo.get(engine_name)
+        if memoized is not None and (now - memoized[1]) < _VOICE_DISCOVERY_TTL_SECONDS:
+            return memoized[0]
+
+        try:
+            discovered = await engine.list_voices()
+        except Exception as exc:  # noqa: BLE001 — discovery gagal tidak boleh mematikan sintesis
+            logger.warning("Voice discovery gagal saat fallback default voice: %s", exc)
+            return ()
+
+        available = tuple(voice.id for voice in discovered if voice.available)
+        self._available_voices_memo[engine_name] = (available, time.monotonic())
+        return available
+
+    async def _post_process(self, raw_audio: bytes, *, volume: float, pitch: float) -> bytes:
+        """Terapkan volume lalu pitch pada audio hasil sintesis.
+
+        Dijalankan di thread worker (``asyncio.to_thread``) karena ``audioop.mul``
+        dan ``audioop.ratecv`` adalah operasi CPU-bound murni yang durasinya
+        sebanding dengan ukuran file audio. Dijalankan langsung di event loop,
+        SELURUH server (HTTP request, worker zone lain, scheduler) ikut membeku
+        selama operasi — tidak dapat diterima untuk sistem 24/7.
+
+        Kasus ``volume == 1.0`` DAN ``pitch == 1.0`` dilewati tanpa menyentuh
+        thread sama sekali: ``AudioProcessor`` sudah mengembalikan input apa
+        adanya untuk kedua nilai itu, jadi hop ke thread hanya jadi overhead murni.
+        """
+        if volume == 1.0 and pitch == 1.0:
+            return raw_audio
+        scaled = self._processor.apply_volume(raw_audio, volume)
+        return await asyncio.to_thread(self._processor.apply_pitch, scaled, pitch)
 
     async def get_cache_stats(self) -> tuple[int, int]:
         """Mengembalikan ``(jumlah_file, total_ukuran_bytes)`` cache TTS saat ini (Phase 10 — Dashboard API)."""

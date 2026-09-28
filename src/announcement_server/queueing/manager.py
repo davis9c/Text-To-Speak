@@ -53,9 +53,11 @@ yang sama dengan ``TTSService``/``AudioAssetResolver`` (Phase 3/7).
 from __future__ import annotations
 
 import asyncio
+import heapq
 import itertools
 import logging
 import uuid
+from collections import deque
 from collections.abc import Iterable
 from datetime import datetime, timezone
 
@@ -66,7 +68,6 @@ from announcement_server.core.exceptions import (
     QueueItemNotFoundError,
 )
 from announcement_server.queueing.models import (
-    FINISHED_STATUSES,
     AnnouncementType,
     QueueItem,
     QueueItemStatus,
@@ -120,6 +121,20 @@ class QueueManager:
         self._max_size = max_size
         self._max_history = max_history
         self._on_event = on_event
+        # Jumlah item berstatus PENDING, DIPERBARUI inkremental (bukan dihitung
+        # ulang dari registry). `enqueue()` dijalankan pada setiap `POST /speak`,
+        # sementara registry bertambah hingga `max_history` (default 1000).
+        # Menghitung ulang dengan scan O(n) di setiap enqueue membuat biaya
+        # request naik seiring riwayat menumpuk, padahal yang dibutuhkan hanya
+        # checking kapasitas antrean. Semua transisi status yang membuat item
+        # tidak lagi PENDING (dequeue/cancel/clear) wajib adjusting `_pending_count`
+        # di bawah agar tetap sinkron.
+        self._pending_count = 0
+        # Id item yang sudah mencapai status final, urut dari yang paling lama.
+        # Dipakai pruning (lihat `_prune_history_locked`) agar O(jumlah item yang
+        # dipangkas) alih-alih membangun + mengurutkan ulang seluruh riwayat
+        # setiap kali satu item selesai — dan itu terjadi pada SETIAP item.
+        self._finished_order: deque[uuid.UUID] = deque()
 
     @property
     def max_size(self) -> int:
@@ -163,11 +178,10 @@ class QueueManager:
         tahu soal multi-engine tetap berperilaku identik dengan V1.
         """
         async with self._lock:
-            pending_count = sum(1 for item in self._registry.values() if item.status == QueueItemStatus.PENDING)
-            if pending_count >= self._max_size:
+            if self._pending_count >= self._max_size:
                 raise QueueFullError(
                     f"Antrean penuh (maksimum {self._max_size} item pending).",
-                    details={"max_size": self._max_size, "current_pending": pending_count},
+                    details={"max_size": self._max_size, "current_pending": self._pending_count},
                 )
 
             now = _utcnow()
@@ -188,6 +202,7 @@ class QueueManager:
                 chime_file=chime_file,
             )
             self._registry[item.id] = item
+            self._pending_count += 1
 
             sequence = next(self._sequence_counter)
             weight = _PRIORITY_WEIGHT[priority]
@@ -215,6 +230,7 @@ class QueueManager:
                 return None
             item.status = QueueItemStatus.PROCESSING
             item.updated_at = _utcnow()
+            self._pending_count -= 1
             result = item.model_copy()
         await self._on_event(EVENT_QUEUE_CHANGED, _item_event_payload(result, reason="processing"))
         return result
@@ -244,6 +260,7 @@ class QueueManager:
             if item is not None:
                 item.status = QueueItemStatus.COMPLETED
                 item.updated_at = _utcnow()
+                self._finished_order.append(item_id)
                 logger.info("Item selesai diproses: id=%s", item_id)
                 result = item.model_copy()
             self._prune_history_locked()
@@ -265,6 +282,7 @@ class QueueManager:
                 item.status = QueueItemStatus.FAILED
                 item.updated_at = _utcnow()
                 item.error_message = error_message
+                self._finished_order.append(item_id)
                 logger.warning("Item gagal diproses: id=%s error=%s", item_id, error_message)
                 result = item.model_copy()
             self._prune_history_locked()
@@ -309,6 +327,8 @@ class QueueManager:
                 )
             item.status = QueueItemStatus.CANCELLED
             item.updated_at = _utcnow()
+            self._pending_count -= 1
+            self._finished_order.append(item_id)
             logger.info("Item antrean dibatalkan: id=%s", item_id)
             self._prune_history_locked()
             result = item.model_copy()
@@ -324,6 +344,8 @@ class QueueManager:
                 if item.status == QueueItemStatus.PENDING:
                     item.status = QueueItemStatus.CANCELLED
                     item.updated_at = now
+                    self._pending_count -= 1
+                    self._finished_order.append(item.id)
                     cleared += 1
             logger.info("Antrean dibersihkan: %d item dibatalkan", cleared)
             self._prune_history_locked()
@@ -348,12 +370,68 @@ class QueueManager:
 
         HARUS dipanggil dalam context ``self._lock`` (nama method diberi
         akhiran ``_locked`` sebagai penanda konvensi).
+
+        O(jumlah item yang dipangkas): karena ``_finished_order`` sudah
+        menyimpan id item final dalam urutan waktunya, item tertua langsung
+        diambil dari depan deque. Versi sebelumnya memfilter SELURUH registry
+        lalu mengurutkannya ulang (O(n log n)) pada setiap kali satu item
+        selesai — dan pemangkasan dipanggil dari ``mark_completed``,
+        ``mark_failed``, ``cancel_item``, dan ``clear``, jadi biaya itu dibayar
+        pada setiap item sepanjang server berjalan.
+
+        Loop-nya dibatasi `excess` iterasi DAN hanya menghitung item yang benar
+        -benar terhapus dari registry, jadi walau ``_finished_order`` pernah
+        memuat entri basi, pruning tidak akan pernah membuang lebih banyak item
+        daripada batas `max_history`.
         """
-        finished = [item for item in self._registry.values() if item.status in FINISHED_STATUSES]
-        excess = len(finished) - self._max_history
+        excess = len(self._finished_order) - self._max_history
         if excess <= 0:
             return
-        finished.sort(key=lambda i: i.updated_at)
-        for item in finished[:excess]:
-            del self._registry[item.id]
-        logger.debug("Riwayat antrean dipangkas: %d item lama dihapus dari memory.", excess)
+        pruned = 0
+        while pruned < excess and self._finished_order:
+            item_id = self._finished_order.popleft()
+            if self._registry.pop(item_id, None) is not None:
+                pruned += 1
+        if pruned:
+            logger.debug("Riwayat antrean dipangkas: %d item lama dihapus dari memory.", pruned)
+
+    async def count_by_status(self) -> dict[QueueItemStatus, int]:
+        """Menghitung item per status TANPA menyalin item satu per satu.
+
+        Dikembalikan hanya status yang jumlahnya > 0. Endpoint dashboard
+        (``GET /metrics``) dan ``GET /status``/``GET /zones`` (``pending_count``/
+        ``processing_count``) hanya butuh ANGKA, tapi sebelumnya harus
+        ``list_items()`` yang menyalin setiap item sebagai ``model_copy()``
+        pydantic lalu mengurutkannya — itu ribuan alokasi objek per polling
+        dashboard, murni untuk membuangnya lagi lewat ``len()``.
+        """
+        counts: dict[QueueItemStatus, int] = {}
+        async with self._lock:
+            for item in self._registry.values():
+                status = item.status
+                counts[status] = counts.get(status, 0) + 1
+        return counts
+
+    async def list_items_recent(
+        self, *, statuses: Iterable[QueueItemStatus] | None = None, limit: int
+    ) -> list[QueueItem]:
+        """``limit`` item paling baru (berdasarkan ``updated_at``), terbaru dulu.
+
+        Dipakai ``GET /history`` yang selalu memotong hasilnya ke ``limit``
+        (default 100) SEBELUM dikirim ke client. Versi sebelumnya menyalin &
+        mengurutkan seluruh riwayat — yang menumpuk sampai ``max_history`` per
+        zone — lalu membuang semua kecuali 100 item teratas. ``heapq.nlargest``
+        di sini memakai memori O(limit) alih-alih O(n), dan karena tiap zone
+        berkontribusi paling banyak ``limit`` item, menggabungkan hasil per zone
+        lalu mengambil ``limit`` teratas tetap memberi jawaban yang sama persis
+        seperti mengurutkan seluruh riwayat.
+        """
+        status_set = set(statuses) if statuses is not None else None
+        async with self._lock:
+            candidates = [
+                item
+                for item in self._registry.values()
+                if status_set is None or item.status in status_set
+            ]
+        newest_first = heapq.nlargest(limit, candidates, key=lambda i: (i.updated_at, i.created_at))
+        return [item.model_copy() for item in newest_first]

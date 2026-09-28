@@ -26,7 +26,9 @@ router = APIRouter(prefix="/maintenance", tags=["Maintenance"])
     description=(
         "Menghapus file cache yang lebih tua dari batas usia yang dikonfigurasi "
         "(`tts.cache_max_age_days` / `announcement.cache_max_age_days`), atau override lewat body. "
-        "Field yang null (default) berarti TIDAK ada file yang dihapus untuk cache tsb."
+        "Field body yang null (default) berarti memakai nilai dari config. Perhatikan nilai config itu "
+        "sendiri default-nya null = TIDAK ada batas usia, sehingga body kosong tidak menghapus apa pun; "
+        "isi field dengan angka hari agar file yang sudah tua benar-benar dihapus."
     ),
 )
 async def cleanup_cache(
@@ -34,7 +36,9 @@ async def cleanup_cache(
 ) -> CacheCleanupResponse:
     """Menghapus file cache TTS & Announcement Engine yang lebih tua dari batas usia yang dikonfigurasi.
 
-    Field yang null pada ``payload`` berarti tidak ada file yang dihapus untuk cache tersebut.
+    Field ``payload`` yang null berarti memakai nilai dari config (``tts.cache_max_age_days`` /
+    ``announcement.cache_max_age_days``); nilai config yang null berarti tidak ada batas usia,
+    sehingga tidak ada file yang dihapus untuk cache tersebut.
     """
     tts_deleted, tts_freed = await tts_service.cleanup_cache(max_age_days=payload.tts_max_age_days)
     announcement_deleted, announcement_freed = await asset_resolver.cleanup_cache(

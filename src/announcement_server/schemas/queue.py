@@ -101,14 +101,19 @@ class SpeakRequest(BaseModel):
         default=1.0,
         ge=0.0,
         le=2.0,
-        description="Volume relatif. 1.0 = normal, 0.0 = bisu, 2.0 = 2x lebih keras.",
+        description=(
+            "Volume relatif. 1.0 = normal, 0.0 = bisu, 2.0 = 2x lebih keras. "
+            "Berlaku untuk SELURUH file yang diputar item ini: pengumuman utama (TTS maupun file statis) "
+            "DAN chime pembuka bila ada. Berlaku terpisah dari volume per-zone (lihat PUT /zones/{name})."
+        ),
     )
     chime: str | None = Field(
         default=None,
         max_length=500,
         description="Path file audio chime (relatif terhadap announcement.sounds_dir pada config.yaml), "
         "mis. 'chime.wav'. OPSIONAL — jika diisi, chime diputar SEKALI SEBELUM pengumuman utama "
-        "(berlaku untuk type='tts' maupun type='audio'). Kosongkan (null) untuk tanpa chime.",
+        "(berlaku untuk type='tts' maupun type='audio'), dan ikut dikenai `volume` yang sama. "
+        "Kosongkan (null) untuk tanpa chime.",
     )
 
     @model_validator(mode="after")

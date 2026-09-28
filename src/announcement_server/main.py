@@ -115,7 +115,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # TTSEngineManager milik `tts_service` di atas. Dipakai HANYA oleh endpoint
     # discovery `GET /tts/*` (api/v1/tts.py) -- TIDAK memengaruhi pipeline sintesis
     # TTS sama sekali (voice tetap divalidasi oleh engine masing-masing saat
-    # sintesis, persis seperti V1). Kegagalan discovery voice (mis. direktori model
+    # sintesis). Kegagalan discovery voice (mis. direktori model
     # kosong) TIDAK BOLEH menggagalkan startup server -- sama seperti prinsip
     # graceful degradation Piper/ffmpeg lainnya di lifespan ini.
     try:

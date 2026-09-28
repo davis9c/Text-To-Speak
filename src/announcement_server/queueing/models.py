@@ -98,7 +98,7 @@ class QueueItem(BaseModel):
     voice: str = Field(default="default", description="Voice/model TTS yang dipakai untuk item ini")
     speed: float = Field(default=1.0, description="Kecepatan bicara yang dipakai untuk item ini")
     pitch: float = Field(default=1.0, description="Pitch yang dipakai untuk item ini")
-    volume: float = Field(default=1.0, description="Volume yang dipakai untuk item ini")
+    volume: float = Field(default=1.0, description="Volume yang dipakai untuk item ini (berlaku untuk pengumuman utama maupun chime)")
     audio_file_path: str | None = Field(
         default=None, description="Path file audio hasil sintesis. Terisi setelah TTS selesai diproses."
     )
@@ -132,5 +132,6 @@ class QueueItem(BaseModel):
     chime_file: str | None = Field(
         default=None,
         description="Path file audio chime (relatif terhadap announcement.sounds_dir), mis. 'chime.wav'. "
-        "null = tanpa chime. Jika diisi, chime diputar sebelum pengumuman utama.",
+        "null = tanpa chime. Jika diisi, chime diputar sebelum pengumuman utama dan ikut dikenai "
+        "`volume` item yang sama.",
     )

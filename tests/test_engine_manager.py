@@ -145,6 +145,6 @@ def test_additional_engine_build_failure_is_not_fatal_to_startup() -> None:
 
 def test_default_engine_build_failure_is_still_fatal() -> None:
     """Berbeda dari engine tambahan: kegagalan membangun engine DEFAULT tetap fatal
-    (perilaku V1/Phase 2 TIDAK berubah)."""
+    (perilaku default TIDAK berubah)."""
     with pytest.raises(TTSEngineNotAvailableError):
         TTSEngineManager(TTSConfig(engine="engine_default_yang_tidak_terdaftar"))

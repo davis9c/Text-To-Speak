@@ -160,7 +160,7 @@ def test_piper_engine_satisfies_tts_engine_contract() -> None:
     ("speed", "expected_length_scale"),
     [
         (2.0, 0.5),  # 2x lebih cepat -> length_scale setengahnya (Piper: kecil = cepat)
-        (1.0, 1.0),  # speed normal -> length_scale normal (tidak ada perubahan, sama seperti V1)
+        (1.0, 1.0),  # speed normal -> length_scale normal (tidak ada perubahan)
         (0.5, 2.0),  # 2x lebih lambat -> length_scale dua kali lipat
     ],
 )
@@ -169,7 +169,7 @@ async def test_synthesize_sends_exact_inverted_length_scale_to_piper_cli(
 ) -> None:
     """Memverifikasi argumen `--length_scale` yang BENAR-BENAR dikirim ke CLI Piper (bukan hanya
     'tidak error' seperti test sebelumnya) — memastikan mapping speed->length_scale (Piper-specific,
-    lihat docstring PiperEngine._synthesize_once) tidak berubah dari behavior V1."""
+    lihat docstring PiperEngine._synthesize_once) tidak berubah dari behavior sebelumnya."""
     engine = PiperEngine(tts_config)
     await engine.synthesize(text="Cek argumen", voice="test_voice", speed=speed)
 

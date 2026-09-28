@@ -5,7 +5,52 @@ Menerima request HTTP, mengantrekan pengumuman, mengubah teks menjadi suara
 (offline, multi-engine), memutar audio ke sistem TOA, serta mendukung Public
 Address (PA) multi-zona.
 
-> **Version:** 2.0.0 — Multi-Engine TTS Platform. Arsitektur TTS generic lewat `TTSEngine`/`TTSEngineManager`/`EngineFactory`, mendukung lebih dari satu engine sekaligus: **Piper** (default), **eSpeak NG** (opsional), dan **StyleTTS2** (opsional, neural/voice-cloning) — lengkap dengan Voice Registry & Engine Capability discovery (`GET /tts/engines`, `GET /tts/voices`). Seluruh fitur inti tetap berjalan tanpa perubahan — lihat [Multi-Engine TTS (V2)](#multi-engine-tts-v2) dan [Migration Guide (V1 → V2)](#migration-guide-v1--v2).
+> **Version:** 2.0.0 — Multi-Engine TTS Platform. Arsitektur TTS generic lewat `TTSEngine`/`TTSEngineManager`/`EngineFactory`, mendukung lebih dari satu engine sekaligus: **Piper** (default), **eSpeak NG** (opsional), dan **StyleTTS2** (opsional, neural/voice-cloning) — lengkap dengan Voice Registry & Engine Capability discovery (`GET /tts/engines`, `GET /tts/voices`). Seluruh fitur inti tetap berjalan tanpa perubahan — lihat [Multi-Engine TTS (V2)](#multi-engine-tts-v2) dan [Backward Compatibility](#backward-compatibility).
+
+---
+
+## 📌 NOTICE — Perubahan 2.0.0
+
+### 1. ⚠️ BREAKING (perilaku): `volume` sekarang juga berlaku untuk chime & file statis
+
+Satu-satunya perubahan yang **mengubah perilaku** dalam rilis ini.
+
+| Jenis file | Sebelum 2.0.0 | Sekarang |
+|-----------|----------------|----------|
+| TTS (`type="tts"`) | ✅ `volume` (dipanggang ke cache) | ✅ `volume` — **tidak berubah** |
+| Chime | ❌ hanya kena volume zone | ✅ ikut kena `volume` per-item |
+| File statis (`type="audio"`) | ❌ **diabaikan** | ✅ ikut kena `volume` per-item |
+
+- Field dan rentangnya **tidak berubah** — `volume` sudah selalu diterima di `POST /speak` dengan rentang `0.0–2.0`. Yang berubah hanya **efeknya**: nilai yang tadinya diabaikan untuk chime & file statis sekarang benar-benar diterapkan.
+- Dampak yang mungkin terasa: pengumuman `type="audio"` (bell/alarm) dan chime yang selama ini berbunyi pada volume penuh, sekarang mengikuti nilai `volume` yang dikirim. Kirim `volume: 1.0` eksplisit untuk mempertahankan perilaku lama.
+- `volume` dan volume per-zone kini **berlipat**, bukan saling menimpa.
+- **Tidak ada breaking change pada signature API**: tidak ada field baru, tidak ada field yang dihapus, tidak ada perubahan status code. Klien yang selama ini mengirim `volume` untuk TTS tidak terpengaruh sama sekali.
+
+### 2. ✏️ Perbaikan dokumentasi
+
+- `GET /queue/{item_id}` tidak pernah ada.** README sebelumnya mengarahkan pengguna memanggilnya; request tersebut mendapat `405 Method Not Allowed`. Endpoint ini **tetap tidak ditambahkan** (di luar scope rilis ini) — dokumentasi saja yang diperbaiki, dengan panduan cara yang benar.
+- **`GET /chimes` dan `POST /maintenance/cache/cleanup` belum terdokumentasi sama sekali.** Keduanya sudah ada dan berfungsi sejak lama; kini punya bagian sendiri.
+- **Deskripsi `volume` pada README claiming "gunakan volume per-zone untuk file statis"** — sudah tidak akurat, dikoreksi.
+- **Field `engine` hilang dari contoh response `201`.** Sudah ditambahkan.
+- **Deskripsi `POST /maintenance/cache/cleanup` di `/docs` salah** soal arti field `null`. Telah dikoreksi di kode: `null` berarti *pakai nilai config* (yang default-nya `null` = tidak ada batas usia), bukan *"tidak ada file yang dihapus"*.
+- Path param scheduler ditulis `{id}`, sebenarnya `{schedule_id}`.
+- Bagian "Migration Guide (V1 → V2)" diganti menjadi "Backward Compatibility"; file `TTSClientV1.html` yang sudah tidak pernah direferensikan dihapus.
+
+### 3. ⚡ Performa (tanpa perubahan kontrak API)
+
+Tidak ada endpoint, field, atau status code yang berubah. Ringkasan:
+
+| Area | Sebelum | Sekarang |
+|------|---------|----------|
+| Voice discovery (Piper scan / eSpeak subprocess) | tiap cache miss | di-memo (TTL 30s), di-invalidate saat `VoiceNotFoundError` |
+| Post-processing audio (`audioop`) | memblokir event loop | jalan di thread worker |
+| Scan direktori cache (`/status`, `/metrics`) | tiap request, 2 syscall/file | `os.scandir` + memo TTL 5s |
+| Pengecekan kapasitas antrean | O(n) per `POST /speak` | O(1) |
+| Pruning riwayat item | O(n log n) per item selesai | O(item yang dipangkas) |
+| Penghitungan item untuk dashboard | `model_copy()` seluruh registry | hitung saja |
+| `GET /history` | salin & sort seluruh riwayat | top-k per zone (`heapq`) |
+
+---
 
 ## Requirements
 
@@ -46,7 +91,7 @@ Sejak **V2**, server mendukung lebih dari satu TTS engine sekaligus. [eSpeak NG]
 
 4. Voice eSpeak NG TIDAK perlu diunduh terpisah (berbeda dari Piper) — seluruh voice sudah bawaan instalasi, otomatis terdeteksi lewat `GET /tts/voices/espeak` (lihat [Multi-Engine TTS (V2)](#multi-engine-tts-v2)).
 
-> Jika `tts.additional_engines` dikosongkan (default), perilaku server 100% identik dengan V1 — hanya Piper yang aktif. Jika eSpeak NG diaktifkan tapi binary-nya tidak ditemukan, server tetap start normal (graceful degradation, sama seperti Piper) — hanya request yang secara eksplisit memilih `"engine": "espeak"` yang akan gagal dengan pesan error jelas.
+> Jika `tts.additional_engines` dikosongkan (default), hanya Piper yang aktif (satu engine). Jika eSpeak NG diaktifkan tapi binary-nya tidak ditemukan, server tetap start normal (graceful degradation, sama seperti Piper) — hanya request yang secara eksplisit memilih `"engine": "espeak"` yang akan gagal dengan pesan error jelas.
 
 ## Setup StyleTTS2 (Engine TTS Ketiga, Opsional)
 
@@ -229,13 +274,13 @@ Contoh `type="audio"` (memutar file statis — bell/alarm/jingle/MP3/WAV apa pun
 - `text`: WAJIB diisi (tidak boleh kosong) jika `type="tts"`. Untuk `type="audio"`, bersifat opsional — jika dikosongkan, otomatis diisi `"[audio] <file>"` supaya `GET /queue` tetap informatif.
 - `file`: WAJIB diisi jika `type="audio"` — path RELATIF terhadap `announcement.sounds_dir` (default `sounds/`), mis. `"bell.mp3"` atau `"alarms/fire.wav"`. Path yang mencoba keluar dari direktori ini (mis. `"../../secret.txt"`) ditolak.
 - `priority`: `urgent` | `high` | `normal` (default) | `low`.
-- `voice`/`speed`/`pitch`: hanya relevan untuk `type="tts"` — diabaikan untuk `type="audio"`. Lihat penjelasan masing-masing di bawah.
-- `engine` (**V2**): nama TTS engine, mis. `"piper"` atau `"espeak"`. Kosongkan (`null`) untuk memakai engine default server (`tts.engine`, perilaku V1 tidak berubah). Engine yang tidak dikenal/tidak aktif menghasilkan error `503` yang jelas — TIDAK ADA fallback diam-diam ke engine lain. Lihat [Multi-Engine TTS (V2)](#multi-engine-tts-v2) untuk cara melihat engine & voice yang tersedia.
+- `voice`/`speed`/`pitch`: hanya relevan untuk `type="tts"` — diabaikan untuk `type="audio"`. Lihat penjelasan masing-masing di bawah. (`volume` **tidak** termasuk daftar ini — berlaku untuk kedua jenis, lihat di bawah.)
+- `engine`: nama TTS engine, mis. `"piper"` atau `"espeak"`. Kosongkan (`null`) untuk memakai engine default server (`tts.engine`, tidak berubah). Engine yang tidak dikenal/tidak aktif menghasilkan error `503` yang jelas — TIDAK ADA fallback diam-diam ke engine lain. Lihat [Multi-Engine TTS (V2)](#multi-engine-tts-v2) untuk cara melihat engine & voice yang tersedia.
 - `voice`: nama voice yang dipakai — namespace-nya SPESIFIK per-`engine` (mis. Piper: `en_US-lessac-medium`, eSpeak NG: `en-us`). Kosongkan (`null`) untuk memakai `tts.default_voice` dari config (default ini berupa voice Piper — jika memilih `engine="espeak"`, sebaiknya SELALU kirim `voice` eksplisit, lihat catatan di [Multi-Engine TTS (V2)](#multi-engine-tts-v2)).
 - `speed`: 0.5–2.0 (1.0 = normal). Dipetakan ke parameter native Piper `--length_scale`.
 - `pitch`: 0.5–2.0 (1.0 = normal). **Catatan:** memakai teknik resampling sederhana yang turut memengaruhi tempo/durasi audio (lihat docstring `AudioProcessor.apply_pitch` untuk detail keterbatasan).
-- `volume`: 0.0–2.0 (1.0 = normal). Berlaku untuk `type="tts"` maupun `type="audio"` (diterapkan ke audio saat sintesis TTS; untuk file statis, konversi ffmpeg TIDAK mengubah volume file asli — gunakan volume per-zone untuk itu).
-- `chime`: path file audio chime (relatif terhadap `announcement.sounds_dir`), mis. `"chime.wav"`. **Opsional** — jika diisi, chime (mis. "ding-dong") diputar SEKALI **sebelum** pengumuman utama, berlaku untuk `type="tts"` MAUPUN `type="audio"`. Kosongkan (`null`, default) untuk tanpa chime. Pemutaran chime bersifat *best-effort*: jika file chime tidak ditemukan / tidak bisa di-resolve / gagal diputar, pengumuman utama **tetap** diputar tanpa chime (tercatat di log) — chime tidak pernah menggagalkan item.
+- `volume`: 0.0–2.0 (1.0 = normal). Berlaku untuk **seluruh file yang diputar item ini** — pengumuman utama (`type="tts"` maupun `type="audio"`) **dan** chime pembuka bila ada. Titik penerapannya berbeda per jenis file, tapi hasil akhirnya konsisten (lihat tabel "Tujuan volume" di [Bagaimana Zone volume diterapkan](#bagaimana-zone-volume-diterapkan)); file asli di cache **tidak pernah** diubah karena itu, gain diterapkan ke salinan sementara. Dikalikan dengan volume per-zone bila item diputar di zone ber-gain ≠ 1.0.
+- `chime`: path file audio chime (relatif terhadap `announcement.sounds_dir`), mis. `"chime.wav"`. **Opsional** — jika diisi, chime (mis. "ding-dong") diputar SEKALI **sebelum** pengumuman utama, berlaku untuk `type="tts"` MAUPUN `type="audio"`, dan **ikut dikenai `volume` yang sama** dengan pengumuman utama. Daftar chime yang tersedia bisa diambil dari `GET /chimes` (lihat [Endpoint Chime Discovery](#endpoint-chime-discovery)). Kosongkan (`null`, default) untuk tanpa chime. Pemutaran chime bersifat *best-effort*: jika file chime tidak ditemukan / tidak bisa di-resolve / gagal diputar, pengumuman utama **tetap** diputar tanpa chime (tercatat di log) — chime tidak pernah menggagalkan item.
 
 Response (`201 Created`) — termasuk field `type`/`file`:
 
@@ -247,19 +292,22 @@ Response (`201 Created`) — termasuk field `type`/`file`:
  "file": null,
  "priority": "normal",
  "status": "pending",
- "created_at": "2026-07-22T10:00:00Z",
- "updated_at": "2026-07-22T10:00:00Z",
- "error_message": null,
- "voice": "en_US-lessac-medium",
+  "created_at": "2026-07-22T10:00:00Z",
+  "updated_at": "2026-07-22T10:00:00Z",
+  "error_message": null,
+  "engine": "piper",
+  "voice": "en_US-lessac-medium",
  "speed": 1.0,
  "pitch": 1.0,
  "volume": 1.0,
  "chime": null,
  "audio_file_path": null,
- "cache_hit": null,
- "position": 1
+  "cache_hit": null,
+  "position": 1
 }
 ```
+
+> Field `engine` pada response menunjukkan engine yang **benar-benar dipakai**. Nilai `null` berarti memakai engine default server (`tts.engine`) — dengan sendirinya **tidak selalu berarti** `engine` pada request juga `null` (request bisa saja mengirim nama engine secara eksplisit).
 
 > ⚠️ **Penting — seluruh pipeline (Cache/Generate + Playback) terjadi ASINKRON, untuk `type="tts"` MAUPUN `type="audio"`.** Response `201` di atas hanya berarti item berhasil masuk antrean, BUKAN berarti audio sudah jadi/diputar (`audio_file_path` masih `null`). QueueWorker memproses item di background lewat Worker Pipeline; pantau progres lewat `GET /queue?status=completed` (audio sudah jadi DAN — jika sistem audio tersedia — sudah selesai diputar, `audio_file_path` terisi) atau `GET /queue?status=failed` (lihat `error_message` — untuk `type="tts"` mis. voice tidak ditemukan/Piper belum ter-setup; untuk `type="audio"` mis. file tidak ditemukan atau `ffmpeg` belum ter-setup untuk format non-WAV — kegagalan playback TIDAK membuat item `failed`, lihat [Worker Pipeline](#worker-pipeline)).
 >
@@ -357,7 +405,7 @@ Kirim field `engine` (opsional) pada `POST /speak`, `POST /zones/{name}/speak`, 
 
 - Voice ID **spesifik per-engine** — voice Piper (`en_US-lessac-medium`), eSpeak NG (`en-us`), dan StyleTTS2 (nama file referensi, mis. `narrator_calm`) berada di namespace terpisah, tidak bisa dipertukarkan antar-engine. Cek `GET /tts/voices/{engine}` untuk voice yang valid pada engine tsb.
 - Engine yang tidak dikenal/tidak aktif menghasilkan `503` (`TTSEngineNotAvailableError`) — bukan fallback diam-diam.
-- Request TANPA `engine` (payload V1 lama) tetap memakai engine default (Piper) — tidak ada perubahan behavior.
+- Request tanpa `engine` memakai engine default server (`tts.engine`) — tidak ada perubahan behavior.
 
 ### Lifecycle Engine
 
@@ -372,13 +420,167 @@ Setiap `TTSEngine` (termasuk StyleTTS2) mengikuti kontrak lifecycle berikut:
 
 ### Cara Menambah Engine Baru
 
-Menambah engine TTS baru **tidak memerlukan perubahan** pada `TTSService`, `Queue`, `Scheduler`, `Playback`, `Cache`, REST API, `VoiceRegistry`, maupun `TTSEngineManager` — seluruhnya sudah generic (dibuktikan langsung lewat penambahan eSpeak NG dan StyleTTS2, dua engine dengan karakteristik sangat berbeda, tanpa mengubah satu pun file di layer tersebut). Langkah minimal:
+Menambah engine TTS baru **tidak memerlukan perubahan** pada `TTSService`, `Queue`, `Scheduler`, `Playback`, `Cache`, REST API, `VoiceRegistry`, maupun `TTSEngineManager` — seluruhnya sudah generic. Klaim ini sudah terbukti tiga kali (Piper → eSpeak NG → StyleTTS2: tiga engine dengan karakteristik sangat berbeda, tanpa menyentuh satu pun file di layer tersebut).
 
-1. Buat class baru di `tts/<nama_engine>_engine.py` yang mewarisi `TTSEngine` (`tts/engine_base.py`), implementasikan `async synthesize(*, text, voice, speed) -> bytes`. Opsional: `list_voices()`, `get_voice()`, `get_capability()`, `initialize()`, `shutdown()` (seluruhnya punya default non-breaking jika tidak di-override).
-2. Daftarkan lewat `EngineFactory.register("nama_engine", NamaEngineClass)` di `tts/engine_factory.py`.
-3. Tambahkan konfigurasi spesifik-engine (jika perlu) sebagai field baru di `TTSConfig` (`core/config.py`), mengikuti pola `piper_*`/`espeak_*`/`styletts2_*` yang sudah ada.
-4. Aktifkan lewat `tts.engine` (sebagai default) atau `tts.additional_engines` (berdampingan dengan default) di `config.yaml`.
-5. Jika engine punya dependency Python berat (seperti StyleTTS2 dengan `torch`), **import dependency tersebut secara lokal di dalam method**, bukan di level modul — agar server tetap bisa start tanpa dependency itu terinstall jika engine tidak diaktifkan (lihat `tts/styletts2_engine.py` sebagai contoh).
+Penyebabnya: registrasi engine hanya berupa satu entri di dict `EngineFactory._registry`, dan `display_name` pada `GET /tts/engines` **diturunkan otomatis** dari nama (`name.replace("_", " ").title()`) — tidak ada tabel nama yang perlu diperbarui.
+
+#### 1. Kontrak yang WAJIB dipenuhi
+
+Lima hal di bawah ini bukan saran — kalau dilanggar, seluruh audio untuk engine tersebut rusak (bukan hanya engine-nya).
+
+| Kontrak | Aturan | Kalau dilanggar |
+|---------|--------|------------------|
+| **Format output** | `synthesize()` **wajib** mengembalikan **raw WAV bytes (PCM)** — bukan MP3/OGG/PCM mentah | `AudioProcessor` (`apply_volume`/`apply_pitch`) dan `PlaybackManager` sama-sama memakai modul stdlib `wave`. Output non-WAV = `wave.Error` saat diproses, item jadi `failed`. |
+| **Arah `speed`** | `speed > 1.0` berarti **lebih cepat**, `1.0` normal | Piper/eSpeak membalik ini jadi `length_scale = 1/speed`. Salah arah = suara terbalik lambat/cepat untuk semua pengumuman engine itu. |
+| **`__init__` tidak boleh melempar** | Binary/path/model yang tidak ada → `logger.warning` saja, **jangan** `raise` | `TTSEngineManager` membangun engine default **eagerly** saat startup, jadi `raise` di `__init__` = **server tidak mau start**. Bandingkan `PiperEngine.__init__` (binary hilang → warning) vs `PiperEngine._synthesize_once` (binary hilang → `TTSEngineNotAvailableError`). |
+| **Pilih exception yang tepat** | Lihat tabel "Kontrak exception" di bawah | Salah pilih = retry percuma untuk error permanen, atau error tak tertangani yang membuat item `failed` tanpa pesan jelas. |
+| **Paket berat di-import lokal** | `import` paket berat (mis. `styletts2`, `torch`) **di dalam method**, bukan di level modul | `EngineFactory` meng-import modul engine saat start; import berat di level modul = crash total kalau paket belum terinstall, **meski engine-nya tidak diaktifkan**. |
+
+#### 2. Kontrak exception
+
+Retry di `TTSService`/engine membedakan transient vs permanen lewat tipe exception. Salah pilih jenis exception bikin perilaku salah:
+
+| Exception | Kapan | Di-retry? |
+|-----------|-------|-----------|
+| `VoiceNotFoundError` | voice/model yang diminta tidak ada | ❌ tidak — mengulang tidak akan mengubah hasil |
+| `TTSEngineNotAvailableError` | engine tidak bisa dijalankan (binary/paket hilang) | ❌ tidak — kondisi permanen |
+| `TTSGenerationError` | proses gagal/timeout (exit code non-nol, timeout) | ✅ ya — kemungkinan kondisi sementara |
+
+Selain itu, `VoiceNotFoundError` juga meng-**invalidasi memo daftar voice** (lihat `TTSService._available_voice_ids`), jadi model yang baru ditambahkan operator langsung terbaca tanpa restart — asalkan exception-nya `VoiceNotFoundError`, bukan `TTSGenerationError`.
+
+#### 3. Langkah implementasi
+
+**a) Buat class engine** di `src/announcement_server/tts/<nama>_engine.py`:
+
+```python
+"""Contoh kerangka engine TTS berbasis subprocess (pola PiperEngine/EspeakEngine)."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import tempfile
+from pathlib import Path
+
+from announcement_server.core.config import TTSConfig
+from announcement_server.core.exceptions import (
+    TTSEngineNotAvailableError,
+    TTSGenerationError,
+    VoiceNotFoundError,
+)
+from announcement_server.core.retry import retry_with_backoff
+from announcement_server.tts.engine_base import TTSEngine
+from announcement_server.tts.engine_capability import EngineCapability
+from announcement_server.tts.voice_profile import VoiceProfile
+
+logger = logging.getLogger(__name__)
+
+
+class NamaEngine(TTSEngine):
+    def __init__(self, config: TTSConfig) -> None:
+        # WAJIB murah & TIDAK melempar exception.
+        self._binary_path = config.nama_binary_path
+        self._timeout_seconds = config.generation_timeout_seconds
+        self._max_retries = config.max_retries
+        self._retry_backoff_seconds = config.retry_backoff_seconds
+
+        # Pola "warning di __init__, error saat dipakai" ini KHUSUS engine
+        # subprocess. Engine berbasis model (StyleTTS2) tidak punya binary yang
+        # bisa dicek di sini — ketersediaannya baru diketahui saat model dimuat
+        # (lazy-load di `synthesize()`), dan itu yang melempar
+        # `TTSEngineNotAvailableError`. Yang wajib berlaku untuk semua engine:
+        # `__init__` tidak pernah melempar.
+        if shutil.which(self._binary_path) is None and not Path(self._binary_path).is_file():
+            logger.warning("Binary '%s' tidak ditemukan. Item akan FAILED saat diproses.", self._binary_path)
+
+    async def synthesize(self, *, text: str, voice: str, speed: float) -> bytes:
+        # Retry HANYA untuk TTSGenerationError (transien) — JANGAN retry
+        # VoiceNotFoundError/TTSEngineNotAvailableError (permanen).
+        return await retry_with_backoff(
+            lambda: self._synthesize_once(text=text, voice=voice, speed=speed),
+            max_retries=self._max_retries,
+            backoff_seconds=self._retry_backoff_seconds,
+            retry_on=(TTSGenerationError,),
+            operation_name=f"NamaEngine synthesize(voice={voice})",
+        )
+
+    async def _synthesize_once(self, *, text: str, voice: str, speed: float) -> bytes:
+        # ... jalankan subprocess secara ASINKRON (WAJIB async create_subprocess_exec,
+        #     bukan subprocess.run — versi blocking akan membekukan SELURUH server),
+        #     bungkus dengan asyncio.wait_for(timeout=...), lalu baca file output
+        #     dengan `await asyncio.to_thread(path.read_bytes)`.
+        ...
+
+    async def list_voices(self) -> list[VoiceProfile]:
+        # Discovery NYATA, tidak boleh hardcode. Jangan mengarang metadata
+        # (language/gender) yang tidak benar-benar diketahui dari sumbernya.
+        ...
+
+    async def get_capability(self) -> EngineCapability:
+        # Hanya laporkan kapABILITAS NATIVE yang benar-benar ada. Nilai ini
+        # murni informasional — TIDAK mengubah pipeline (lihat catatan
+        # `capability` di bagian atas).
+        return EngineCapability(supports_speed=True, offline=True)
+```
+
+> Untuk engine in-process + paket berat (gaya StyleTTS2), lihat `tts/styletts2_engine.py`: paket berat (`styletts2`, yang menarik `torch` secara transitif) di-`import` **di dalam method**, model dimuat secara lazy saat `synthesize()` pertama (bukan saat `__init__`), dan pekerjaan CPU dipindahkan ke thread (`asyncio.to_thread`).
+
+**b) Daftarkan** di `src/announcement_server/tts/engine_factory.py` — jangan lupa **import**-nya juga, karena registrasi terjadi saat modul di-import:
+
+```python
+from announcement_server.tts.nama_engine import NamaEngine   # <- WAJIB ditambahkan
+
+EngineFactory.register("nama", NamaEngine)                    # <- di blok registrasi bawah
+```
+
+**c) Tambah field config** di `TTSConfig` (`core/config.py`), pakai awalan nama engine agar tidak bentrok — `nama_binary_path`, `nama_timeout_seconds`, dll. Config **bersama** (`generation_timeout_seconds`, `max_retries`, `retry_backoff_seconds`, `default_voice`, `cache_dir`) **sudah dipakai** semua engine; jangan duplikasi.
+
+**d) Aktifkan** di `config/config.yaml`:
+
+```yaml
+tts:
+  engine: "piper"                              # engine default (WAJIB terdaftar)
+  additional_engines: ["espeak", "nama"]       # engine tambahan, berdampingan
+  nama_binary_path: "engines/nama/nama.exe"    # field config engine baru
+```
+
+> ⚠️ **Perbedaan penting antara `engine` dan `additional_engines`:** kegagalan membangun engine **default** (`tts.engine`) bersifat **fatal** — server gagal start. Sebaliknya, engine di `additional_engines` yang gagal dibangun hanya **dilewati** dengan warning, dan server tetap jalan. Untuk engine yang baru/eksperimental, taruh di `additional_engines` dulu.
+
+**e) Tambahkan test.** Ikuti pola `tests/test_<nama>_engine.py`: pakai **binary palsu** (skrip/script batch yang di-`PATH` via monkeypatch) sehingga test tidak butuh engine sungguhan. Tambahkan juga cek registrasi di `tests/test_engine_factory.py`:
+
+```python
+def test_nama_is_registered_alongside_existing_engines() -> None:
+    registered = EngineFactory.list_registered_names()
+    assert "piper" in registered
+    assert "espeak" in registered
+    assert "nama" in registered
+```
+
+Test yang sudah ada **tidak perlu diubah** — semuanya memakai `assert "x" in registered`, bukan `==`, jadi menambah engine tidak akan merusaknya.
+
+#### 4. Verifikasi setelah menambah
+
+```bash
+# 1. engine terdaftar & muncul di discovery API
+curl http://localhost:8000/tts/engines
+curl http://localhost:8000/tts/voices/nama        # 503 = belum terdaftar; 200 + [] = ok, tapi voice belum terdeteksi
+
+# 2. sintesis benar-benar jalan (ganti teks/voice sesuai engine tsb)
+curl -X POST http://localhost:8000/speak -H "Content-Type: application/json" \
+     -d '{"text":"Tes engine baru","engine":"nama","voice":"<voice-id>","volume":1.0}'
+
+# 3. cek hasilnya
+curl "http://localhost:8000/queue?status=completed"   # audio_file_path terisi? cache_hit?
+curl "http://localhost:8000/queue?status=failed"      # error_message akan menjelaskan penyebabnya
+```
+
+Kalau sintesis gagal, `error_message` pada item yang `failed` selalu menjelaskan penyebabnya (voice tidak ditemukan / binary tidak ada / timeout / exit code) beserta `details` — cek `logs/announcement_server.log` untuk jejak lengkapnya.
+
+#### 5. Yang TIDAK perlu disentuh
+
+Tidak ada perubahan yang diperlukan pada: `TTSService`, `TTSEngineManager`, `EngineFactory` (kecuali baris registrasi), `Queue`/`QueueManager`, `Scheduler`, `Playback`, `AudioCache`/`AudioAssetResolver`, `VoiceRegistry`, router `api/v1/tts.py`, schema, dan `main.py`. `VoiceRegistry` melakukan refresh otomatis saat startup, jadi voice engine baru langsung terdaftar tanpa kode tambahan.
+
+> ⚠️ Ingat batasan lifecycle di atas: hook `initialize()`/`shutdown()` **belum dipanggil** oleh `TTSEngineManager`/`main.py` di versi ini. Kalau engine kamu bergantung pada `initialize()` untuk setup, pemanggilannya belum terjadi — andalkan lazy-load di `synthesize()` seperti yang dilakukan StyleTTS2.
 
 ## Endpoint Audio Playback
 
@@ -469,8 +671,10 @@ Queue → Cache → Generate → Playback → Delay → Queue Berikutnya
 5. **Queue Berikutnya** — worker otomatis lanjut ke item PENDING
  berikutnya (priority tertinggi dulu, lalu FIFO).
 
-Pantau progres tiap tahap lewat `GET /queue/{item_id}` atau
-`GET /queue?status=...` — `status` item baru menjadi `completed` **setelah
+Pantau progres tiap tahap lewat `GET /queue?status=...` lalu carilah item
+berdasarkan field `id` — **belum ada** endpoint `GET /queue/{item_id}` untuk
+mengambil satu item saja, jadi jangan mengirim `GET /queue/{item_id}` (akan
+`405 Method Not Allowed`). `status` item baru menjadi `completed` **setelah
 seluruh pipeline** (termasuk playback + delay) selesai, bukan lagi hanya
 setelah TTS selesai.
 
@@ -555,15 +759,29 @@ curl -X POST http://localhost:8000/zones/lobby/speak \
 
 ### Bagaimana Zone volume diterapkan
 
-`volume` pada Zone adalah **gain per-channel** (analog volume knob
-amplifier TOA) — **berbeda** dari `volume` pada `POST /speak` (gain per-item yang sudah dipanggang ke dalam file cache TTS). Zone volume
-diterapkan **saat playback**, ke salinan sementara audio (bukan ke file
-cache asli — cache TTS berbasis SHA256 di-share oleh seluruh zone), lewat
-`AudioProcessor.apply_volume` yang sama persis dipakai untuk TTS (tidak
-diduplikasi). Salinan sementara ini dibuat di `cache/zone_audio/{nama_zone}/`
-dan otomatis dihapus setelah selesai diputar. Zone `main` memakai gain
-`1.0` secara default, sehingga tidak mengubah perilaku dasar (file
-cache diputar langsung, tanpa salinan sementara).
+Ada **dua gain yang independen**, dan keduanya berlipat (bukan saling
+menggantikan):
+
+| Sumber | Scope | Berlaku untuk |
+|--------|-------|---------------|
+| `volume` pada `POST /speak` | per pengumuman | pengumuman utama **dan** chime |
+| `volume` pada `PUT /zones/{name}` | per zone (analog volume knob amplifier TOA) | semua item di zone itu |
+
+Jadi `volume: 1.5` pada item yang diputar di zone ber-`volume: 0.6` terdengar
+pada gain `0.9` (`0.6 × 1.5`).
+
+**Tujuan `volume` per-item** — titik penerapannya berbeda per jenis file,
+tapi hasil akhirnya seragam:
+
+| Jenis file | Tujuan `volume` per-item | Digabung dengan gain zone |
+|-----------|--------------------------|---------------------------|
+| TTS (`type="tts"`) | dipanggang ke file cache TTS (juga bagian cache key) | ya, saat playback |
+| File statis (`type="audio"`) | diterapkan saat playback | ya, dikalikan |
+| Chime | diterapkan saat playback | ya, dikalikan |
+
+Karena TTS sudah memanggang `volume` ke cache-nya, pipeline **tidak** menerapkannya lagi — kalau iya volumenya ter-kuadrat (`volume: 1.5` → 1.5× di-cache → ×1.5 lagi saat playback = 2.25×).
+
+Gain zone (dan `volume` per-item untuk file statis & chime) selalu diterapkan **saat playback** ke *salinan sementara* audio, bukan ke file asli — cache TTS berbasis SHA256 dan file chime statis di-share oleh seluruh zone, jadi tidak boleh tercemar. Salinan sementara dibuat di `cache/zone_audio/{nama_zone}/` dan otomatis dihapus setelah selesai diputar. Zone `main` memakai gain `1.0` secara default, sehingga tidak mengubah perilaku dasar (file cache diputar langsung, tanpa salinan sementara).
 
 ### Konfigurasi Zone via `config.yaml`
 
@@ -585,10 +803,12 @@ tepat — tidak ada jalur pemrosesan TTS/audio baru.
 |--------|-----------------------------|---------------------------------------------------------------|
 | GET | `/scheduler` | Melihat daftar seluruh jadwal |
 | POST | `/scheduler` | Membuat jadwal baru |
-| GET | `/scheduler/{id}` | Melihat detail satu jadwal |
-| PUT | `/scheduler/{id}` | Memperbarui jadwal (pembaruan parsial) |
-| DELETE | `/scheduler/{id}` | Menghapus jadwal |
-| POST | `/scheduler/{id}/trigger` | Memicu satu jadwal SEGERA (manual, untuk verifikasi) tanpa memengaruhi jadwal otomatis berikutnya |
+| GET | `/scheduler/{schedule_id}` | Melihat detail satu jadwal |
+| PUT | `/scheduler/{schedule_id}` | Memperbarui jadwal (pembaruan parsial) |
+| DELETE | `/scheduler/{schedule_id}` | Menghapus jadwal |
+| POST | `/scheduler/{schedule_id}/trigger` | Memicu satu jadwal SEGERA (manual, untuk verifikasi) tanpa memengaruhi jadwal otomatis berikutnya |
+
+> `schedule_id` berupa UUID (dari response `POST /scheduler` atau `GET /scheduler`). Path yang tidak valid menghasilkan `422`, schedule yang tidak ada menghasilkan `404`.
 
 Contoh `POST /scheduler` (Daily — Bell Masuk):
 
@@ -688,6 +908,72 @@ ws.onmessage = (msg) => console.log(JSON.parse(msg.data));
 > Queue/Playback itu sendiri — client yang bermasalah otomatis dibersihkan
 > dari daftar koneksi aktif.
 
+## Endpoint Chime Discovery
+
+Daftar file chime yang tersedia, supaya client (mis. dropdown di dashboard
+web) bisa menampilkan pilihan tanpa perlu tahu isi folder server.
+
+| Method | Path | Deskripsi |
+|--------|------------|-------------------------------------------------------------------|
+| GET | `/chimes` | Daftar seluruh chime di `announcement.chime_dir` + chime default |
+
+Contoh response:
+
+```json
+{
+  "chimes": [
+    { "id": "chime",   "name": "chime",   "file": "chime/chime.wav",  "is_default": true },
+    { "id": "ding",    "name": "ding",    "file": "chime/ding.wav",   "is_default": false },
+    { "id": "opening", "name": "opening", "file": "chime/opening.mp3", "is_default": false }
+  ],
+  "count": 3,
+  "default_chime": "chime/chime.wav"
+}
+```
+
+- `file`: path **relatif terhadap `announcement.sounds_dir`** — format yang **sama persis** dengan field `chime` pada `POST /speak`/`POST /zones/{name}/speak` dan payload `announcement` pada scheduler, jadi nilainya bisa langsung dipakai tanpa transformasi.
+- `is_default`: `true` untuk file bernama `chime.*` atau `default.*` — SIGNAL untuk menyorot pilihan bawaan di UI.
+- `default_chime`: nilai `file` dari chime bertanda `default`, atau `null` jika tidak ada. Kosongkan (`null`) pada request `chime` = tanpa chime.
+- Folder chime tidak ada atau kosong → `{"chimes": [], "count": 0, "default_chime": null}`, **bukan** error.
+
+> Direktori chime di-scan ulang pada **setiap** request (bukan di-cache saat startup), jadi file chime yang ditambahkan operator langsung muncul di sini tanpa perlu restart server. Format non-WAV (mis. `.mp3`) tetap muncul di daftar, tapi baru dikonversi oleh `ffmpeg` saat benar-benar diputar — lihat [Setup ffmpeg (opsional)](#setup-ffmpeg-opsional-announcement-engine).
+>
+> `GET /chimes` hanya **membaca**; menambahkan/menghapus file chime dilakukan langsung di folder `announcement.chime_dir` di server.
+
+## Endpoint Maintenance
+
+| Method | Path | Deskripsi |
+|--------|-----------------------------------|-----------------------------------------------------------------------|
+| POST | `/maintenance/cache/cleanup` | Menghapus file cache (TTS & hasil konversi audio) yang lebih tua dari batas usia |
+
+Body (seluruh field opsional, `{}` berarti pakai nilai dari `config.yaml`):
+
+```json
+{
+  "tts_max_age_days": 30,
+  "announcement_max_age_days": 30
+}
+```
+
+- `tts_max_age_days`: override `tts.cache_max_age_days` untuk pemanggilan ini saja.
+- `announcement_max_age_days`: override `announcement.cache_max_age_days` untuk pemanggilan ini saja.
+- Field `null` atau tidak dikirim → pakai nilai dari `config.yaml`. Perlu diingat bahwa nilai config itu sendiri **default-nya `null`**, yang artinya "tidak ada batas usia" → tidak ada file yang dihapus. Jadi body `{}` dengan config default menghasilkan `deleted_count: 0` untuk kedua cache. Agar benar-benar menghapus, isi salah satu field dengan angka hari (atau set `cache_max_age_days` di config).
+
+Response:
+
+```json
+{
+  "tts_cache":         { "deleted_count": 128, "freed_bytes": 52428800 },
+  "announcement_cache": { "deleted_count": 12,  "freed_bytes": 3145728 }
+}
+```
+
+> ⚠️ Endpoint ini **tidak idempoten secara semantik** — setiap pemanggilan menghapus file lagi. Aman dipanggil berkala (mis. cron) tapi jangan dijalankan bersamaan dengan pemanggilan lain.
+>
+> Cache TTS dihapus berdasarkan usia **file**, bukan berdasarkan apakah audio-nya sedang diputar. Item yang masih/antre bisa kehilangan file cache-nya; pengumuman akan disintesis ulang pada percobaan berikutnya (tidak fatal, hanya menambah latency). Backend juga menjalankan cleanup otomatis saat startup bila `maintenance.cache_cleanup_on_startup: true` di config.
+>
+> Angka pada `GET /status`/`GET /metrics` di-cache selama beberapa detik, jadi `file_count` mungkin masih menampilkan angka sesaat setelah cleanup — bukan bug.
+
 ## Endpoint Dashboard
 
 Endpoint read-only untuk monitoring/dashboard eksternal — murni agregasi dari komponen yang sudah ada, tidak ada state baru.
@@ -719,7 +1005,7 @@ Bagian `tts:` mengatur TTS Engine (**V2**: kini mendukung multi-engine):
 | Key | Default | Deskripsi |
 |-------------------------------|----------------|-------------------------------------------------------------------------------|
 | `tts.engine` | `piper` | Engine default/utama — HARUS terdaftar di `EngineFactory` (`piper`/`espeak`/`styletts2`) |
-| `tts.additional_engines` | `[]` | **(V2)** Engine tambahan yang diaktifkan berdampingan dengan default, opsional & opt-in — kosong = perilaku V1 (satu engine aktif) |
+| `tts.additional_engines` | `[]` | Engine tambahan yang diaktifkan berdampingan dengan default, opsional & opt-in — kosong = hanya satu engine aktif |
 | `tts.piper_binary_path` | `engines/piper/piper.exe` | Path executable Piper |
 | `tts.piper_models_dir` | `engines/piper/models` | Direktori model voice Piper (`.onnx` + `.onnx.json`) |
 | `tts.espeak_binary_path` | `espeak-ng` | **(V2)** Path/nama executable eSpeak NG (dipakai hanya jika `espeak` ada di `additional_engines` atau jadi `tts.engine`) |
@@ -863,16 +1149,16 @@ announcement-server/
 └── README.md
 ```
 
-## Migration Guide (V1 → V2)
+## Backward Compatibility
 
-V2 dirancang **100% backward-compatible** dengan V1 — tidak ada breaking change:
+Tidak ada breaking change — field baru selalu **opsional** dengan default yang menghasilkan perilaku lama:
 
-- Seluruh payload/response V1 tetap valid apa adanya. Field baru (`engine` pada `POST /speak`/`/zones/{name}/speak`/scheduler, `capability` pada `GET /tts/engines`) selalu **opsional** dengan default yang menghasilkan perilaku identik V1.
-- `tts.engine` tetap berarti "engine default", tidak berubah — server yang tidak menyentuh config V2 baru (`tts.additional_engines`, `tts.espeak_binary_path`, `tts.styletts2_*`) berjalan identik dengan V1 (hanya Piper aktif).
+- Field `engine` pada `POST /speak`/`/zones/{name}/speak`/scheduler dan `capability` pada `GET /tts/engines` selalu opsional. Request yang tidak menyebut `engine` memakai engine default server (`tts.engine`).
+- `tts.engine` tetap berarti "engine default" — server yang tidak menyentuh config tambahan (`tts.additional_engines`, `tts.espeak_binary_path`, `tts.styletts2_*`) berjalan dengan satu engine aktif saja.
 - Tidak perlu migrasi data — cache, queue, config lama tetap kompatibel.
 - Untuk mulai memakai engine tambahan: ikuti [Setup eSpeak NG](#setup-espeak-ng-engine-tts-kedua-opsional) dan/atau [Setup StyleTTS2](#setup-styletts2-engine-tts-ketiga-opsional), tambahkan nama engine yang diinginkan (`espeak`/`styletts2`) ke `tts.additional_engines`, lalu kirim `"engine": "..."` pada request yang diinginkan saja — request lain yang tidak menyebut `engine` tidak terpengaruh sama sekali.
 - Menambah engine BARU (di luar 3 engine bawaan) tidak memerlukan perubahan kontrak API/Core sama sekali — lihat [Cara Menambah Engine Baru](#cara-menambah-engine-baru).
-- Endpoint V1 (root-level, tanpa prefix: `/speak`, `/queue`, `/devices`, dll) dan endpoint V2 (prefixed: `/zones/*`, `/scheduler/*`, `/tts/*`, `/maintenance/*`) sengaja hidup berdampingan dengan pola URL berbeda — ini permanen, bukan inkonsistensi yang akan "diperbaiki" di rilis mendatang (mengubahnya akan memecah kompatibilitas V1).
+- Endpoint root-level (`/speak`, `/queue`, `/devices`, dll) dan endpoint prefixed (`/zones/*`, `/scheduler/*`, `/tts/*`, `/maintenance/*`) sengaja hidup berdampingan dengan pola URL berbeda — ini permanen, bukan inkonsistensi yang akan "diperbaiki" di rilis mendatang.
 
 ## Known Limitations & Future Development
 

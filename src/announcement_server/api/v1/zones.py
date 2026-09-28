@@ -53,15 +53,18 @@ async def _build_zone_response(zone_manager: ZoneManager, name: str) -> ZoneResp
     """Menggabungkan metadata Zone + status runtime (worker/playback/queue count/current_file)."""
     zone = zone_manager.get_zone(name)
     queue_manager = zone_manager.get_queue_manager(name)
-    pending = await queue_manager.list_items(statuses={QueueItemStatus.PENDING})
-    processing = await queue_manager.list_items(statuses={QueueItemStatus.PROCESSING})
+    # `count_by_status()` menggantikan `list_items()` yang menyalin seluruh
+    # registry sebagai `model_copy()` pydantic hanya untuk di-`len()`-kan.
+    # Dipanggil pada setiap GET /zones & GET /status (polling dashboard), jadi
+    # penghematan di sini langsung terasa per request.
+    counts = await queue_manager.count_by_status()
     return ZoneResponse.build(
         zone,
         worker_running=zone_manager.is_worker_running(name),
         playback_state=zone_manager.get_playback_state(name),
         current_file=zone_manager.get_current_file(name),
-        pending_count=len(pending),
-        processing_count=len(processing),
+        pending_count=counts.get(QueueItemStatus.PENDING, 0),
+        processing_count=counts.get(QueueItemStatus.PROCESSING, 0),
     )
 
 

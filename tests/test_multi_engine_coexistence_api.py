@@ -100,7 +100,7 @@ def test_unknown_engine_still_returns_503_when_two_engines_active(client: TestCl
 
 
 def test_speak_endpoint_still_works_identically_with_two_engines_active(client: TestClient) -> None:
-    """Request V1 lama (tanpa `engine`) HARUS tetap memakai Piper sebagai default,
+    """Request tanpa `engine` HARUS tetap memakai Piper sebagai default,
     tidak terpengaruh oleh keberadaan eSpeak NG sebagai engine tambahan."""
     response = client.post("/speak", json={"text": "Halo dunia", "voice": "en_US-lessac-medium"})
     assert response.status_code == 201
