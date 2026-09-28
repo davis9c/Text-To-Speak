@@ -262,8 +262,9 @@ async def test_wait_until_finished_completes_when_frames_exhausted(
     await asyncio.sleep(0.02)
     assert not waiter.done()
 
+    stream.callback(np.zeros((1000, 1), dtype=np.int16), 1000, None, None)  # habiskan semua frame
     with pytest.raises(FakeSoundDevice.CallbackStop):
-        stream.callback(np.zeros((1000, 1), dtype=np.int16), 1000, None, None)  # habiskan semua frame
+        stream.callback(np.zeros((100, 1), dtype=np.int16), 100, None, None)
 
     await asyncio.wait_for(waiter, timeout=1.0)
     assert playback_manager.state == PlaybackState.IDLE

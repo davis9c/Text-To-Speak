@@ -1,0 +1,240 @@
+{
+  "info": {
+    "name": "Announcement Server",
+    "description": "Koleksi request untuk menguji Announcement Server (Text-to-Speech untuk sistem TOA/PA).\n\nCara pakai:\n1. Jalankan server (run.bat atau uvicorn).\n2. Import file ini ke Postman (File > Import).\n3. Pastikan variabel `baseUrl` sudah benar (default: http://localhost:8000).\n4. Mulai dari request \"1. Cek Kesehatan Server\", lalu \"2. Lihat Voice Tersedia\".\n\nPenting: response 201 dari /speak hanya berarti item MASUK ANTREAN. Pemrosesan\n(text-to-speech + playback) terjadi di background — cek status lewat \"5. Lihat Riwayat\".",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Cek Kesehatan Server",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["health"]
+        },
+        "description": "Harus mengembalikan status OK. Kalau error/connection refused, server belum berjalan."
+      },
+      "response": []
+    },
+    {
+      "name": "2. Lihat Voice Tersedia",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/tts/voices",
+          "host": ["{{baseUrl}}"],
+          "path": ["tts", "voices"]
+        },
+        "description": "Menampilkan semua suara (voice) yang terpasang. Salin salah satu `id` untuk dipakai di request /speak (field voice)."
+      },
+      "response": []
+    },
+    {
+      "name": "3. Kirim Pengumuman Teks (TTS)",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/speak",
+          "host": ["{{baseUrl}}"],
+          "path": ["speak"]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"type\": \"tts\",\n  \"text\": \"Nomor antrean A001, silakan menuju loket 3.\",\n  \"priority\": \"normal\"\n}"
+        },
+        "description": "Mengirim pengumuman ke antrean zone main.\n\nField wajib: `type` (tts/audio) dan `text` (untuk tts).\nBisa ditambahkan: `voice`, `speed`, `pitch`, `volume`, `priority`, `chime`.\n\nResponse 201 = berhasil masuk antrean (bukan berarti sudah berbunyi)."
+      },
+      "response": []
+    },
+    {
+      "name": "4. Lihat Antrean Aktif",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/queue",
+          "host": ["{{baseUrl}}"],
+          "path": ["queue"]
+        },
+        "description": "Menampilkan item yang masih pending/processing."
+      },
+      "response": []
+    },
+    {
+      "name": "5. Lihat Riwayat (Selesai/Gagal)",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/queue?status=completed",
+          "host": ["{{baseUrl}}"],
+          "path": ["queue"],
+          "query": [
+            {
+              "key": "status",
+              "value": "completed"
+            }
+          ]
+        },
+        "description": "Ganti `status` menjadi `completed`, `failed`, atau `cancelled`.\nKalau item berstatus `failed`, baca field `error_message` untuk tahu penyebabnya."
+      },
+      "response": []
+    },
+    {
+      "name": "6. Putar File Audio (Bell/Alarm)",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/speak",
+          "host": ["{{baseUrl}}"],
+          "path": ["speak"]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"type\": \"audio\",\n  \"file\": \"bell.wav\",\n  \"priority\": \"high\"\n}"
+        },
+        "description": "Memutar file audio statis. `file` adalah path relatif ke folder `sounds/`.\nFormat .wav diputar langsung; format lain (mp3) butuh ffmpeg."
+      },
+      "response": []
+    },
+    {
+      "name": "7. Daftar Output Audio Device",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/devices",
+          "host": ["{{baseUrl}}"],
+          "path": ["devices"]
+        },
+        "description": "Menampilkan semua output device (speaker/TOA) yang terdeteksi, lengkap dengan `id`."
+      },
+      "response": []
+    },
+    {
+      "name": "8. Pilih Device Output Aktif",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/device",
+          "host": ["{{baseUrl}}"],
+          "path": ["device"]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"device_id\": 0\n}"
+        },
+        "description": "Mengganti device output tempat audio diputar. Ambil `id` dari request nomor 7."
+      },
+      "response": []
+    },
+    {
+      "name": "9. Lihat Daftar Zone",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/zones",
+          "host": ["{{baseUrl}}"],
+          "path": ["zones"]
+        },
+        "description": "Menampilkan semua zone (jalur audio independen). Zone `main` selalu ada dan tidak bisa dihapus."
+      },
+      "response": []
+    },
+    {
+      "name": "10. Kirim Pengumuman ke Zone Tertentu",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/zones/main/speak",
+          "host": ["{{baseUrl}}"],
+          "path": ["zones", "main", "speak"]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"type\": \"tts\",\n  \"text\": \"Selamat datang di lobby.\"\n}"
+        },
+        "description": "Sama seperti /speak, tapi ditujukan ke zone tertentu (ganti `main` dengan nama zone lain)."
+      },
+      "response": []
+    },
+    {
+      "name": "11. Buat Jadwal Otomatis",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/scheduler",
+          "host": ["{{baseUrl}}"],
+          "path": ["scheduler"]
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Bell Masuk\",\n  \"zone\": \"main\",\n  \"recurrence\": \"daily\",\n  \"time_of_day\": \"07:00\",\n  \"announcement\": {\n    \"type\": \"audio\",\n    \"file\": \"bell.wav\",\n    \"priority\": \"high\"\n  }\n}"
+        },
+        "description": "Membuat jadwal berulang. `recurrence`: daily | weekly | once.\nSetelah dibuat, bisa langsung diuji dengan request nomor 13 (trigger manual)."
+      },
+      "response": []
+    },
+    {
+      "name": "12. Lihat Semua Jadwal",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/scheduler",
+          "host": ["{{baseUrl}}"],
+          "path": ["scheduler"]
+        },
+        "description": "Menampilkan semua jadwal beserta `id`-nya (untuk trigger/hapus)."
+      },
+      "response": []
+    },
+    {
+      "name": "13. Trigger Jadwal Sekarang (Uji Manual)",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/scheduler/{{scheduleId}}/trigger",
+          "host": ["{{baseUrl}}"],
+          "path": ["scheduler", "{{scheduleId}}", "trigger"]
+        },
+        "description": "Memicu satu jadwal SEJARAH langsung tanpa menunggu waktunya.\nGanti `{{scheduleId}}` di URL dengan id jadwal dari request nomor 12."
+      },
+      "response": []
+    }
+  ]
+}

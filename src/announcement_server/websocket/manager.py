@@ -22,11 +22,13 @@ class ConnectionManager:
     """Registry client WebSocket + broadcast pesan JSON ke seluruhnya."""
 
     def __init__(self) -> None:
+        """Menyiapkan registry koneksi kosong + ``asyncio.Lock`` untuk akses bersamaan."""
         self._connections: set[WebSocket] = set()
         self._lock = asyncio.Lock()
 
     @property
     def connection_count(self) -> int:
+        """Jumlah client WebSocket yang sedang terdaftar."""
         return len(self._connections)
 
     async def connect(self, websocket: WebSocket) -> None:

@@ -90,10 +90,15 @@ class QueueItem(BaseModel):
     # Disimpan per-item (bukan hanya di request) karena item terus ada di
     # registry setelah request selesai, dan worker (berjalan async, terpisah
     # dari request/response HTTP) butuh parameter ini saat memprosesnya nanti.
+    engine: str | None = Field(
+        default=None,
+        description="Nama TTS engine yang dipakai untuk item ini (mis. 'piper'). "
+        "null = pakai engine default server (perilaku V1, tidak berubah). Diabaikan jika announcement_type='audio'.",
+    )
     voice: str = Field(default="default", description="Voice/model TTS yang dipakai untuk item ini")
     speed: float = Field(default=1.0, description="Kecepatan bicara yang dipakai untuk item ini")
     pitch: float = Field(default=1.0, description="Pitch yang dipakai untuk item ini")
-    volume: float = Field(default=1.0, description="Volume yang dipakai untuk item ini")
+    volume: float = Field(default=1.0, description="Volume yang dipakai untuk item ini (berlaku untuk pengumuman utama maupun chime)")
     audio_file_path: str | None = Field(
         default=None, description="Path file audio hasil sintesis. Terisi setelah TTS selesai diproses."
     )
@@ -114,4 +119,19 @@ class QueueItem(BaseModel):
         default=None,
         description="Path file audio statis (relatif terhadap announcement.sounds_dir) untuk "
         "announcement_type='audio'. null untuk announcement_type='tts'.",
+    )
+
+    # --- Field Chime ---
+    # Efek chime (mis. "ding-dong") yang diputar SEKALI SEBELUM pengumuman
+    # utama (berlaku untuk `announcement_type='tts'` MAUPUN `'audio'`).
+    # Bersifat OPSIONAL: `None` (default) = tanpa chime. Path SELALU relatif
+    # terhadap `announcement.sounds_dir` (sama seperti `source_file`), dan
+    # resolusi/pemutaran chime bersifat best-effort — kegagalannya TIDAK
+    # boleh menggagalkan pengumuman itu sendiri (lihat
+    # `queueing/pipeline_processor.py`).
+    chime_file: str | None = Field(
+        default=None,
+        description="Path file audio chime (relatif terhadap announcement.sounds_dir), mis. 'chime.wav'. "
+        "null = tanpa chime. Jika diisi, chime diputar sebelum pengumuman utama dan ikut dikenai "
+        "`volume` item yang sama.",
     )

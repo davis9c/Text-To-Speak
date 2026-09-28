@@ -15,7 +15,7 @@ import hashlib
 import logging
 from pathlib import Path
 
-from announcement_server.core.fs_stats import cleanup_directory, compute_directory_stats
+from announcement_server.core.fs_stats import DirectoryStatsCache, cleanup_directory
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +24,13 @@ class AudioCache:
     """Cache file audio berbasis SHA256 di filesystem."""
 
     def __init__(self, cache_dir: Path) -> None:
+        """Menyimpan direktori cache dan memastikan direktori tersebut ada (dibuat jika belum ada)."""
         self._cache_dir = cache_dir
         self._cache_dir.mkdir(parents=True, exist_ok=True)
+        # Statistik direktori hanya dibaca oleh dashboard (`GET /status`/`/metrics`),
+        # yang dipanggil polling. Memo TTL di sini mencegah seluruh direktori cache
+        # dipindai ulang pada setiap polling.
+        self._stats_cache = DirectoryStatsCache(self._cache_dir)
 
     @staticmethod
     def compute_key(*, engine: str, voice: str, text: str, speed: float, pitch: float, volume: float) -> str:
@@ -47,6 +52,7 @@ class AudioCache:
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def path_for(self, cache_key: str) -> Path:
+        """Path file WAV di direktori cache untuk sebuah cache key (``<cache_key>.wav``)."""
         return self._cache_dir / f"{cache_key}.wav"
 
     async def get(self, cache_key: str) -> Path | None:
@@ -67,6 +73,7 @@ class AudioCache:
         tmp_path = final_path.with_suffix(".tmp")
 
         def _write() -> None:
+            """Menulis bytes ke file sementara lalu meng-rename ke path final (atomic replace)."""
             tmp_path.write_bytes(audio_bytes)
             tmp_path.replace(final_path)
 
@@ -76,11 +83,15 @@ class AudioCache:
 
     async def get_stats(self) -> tuple[int, int]:
         """Mengembalikan ``(jumlah_file, total_ukuran_bytes)`` cache saat ini (Phase 10 — Dashboard API)."""
-        return await asyncio.to_thread(compute_directory_stats, self._cache_dir)
+        return await self._stats_cache.get_stats()
 
     async def cleanup(self, *, max_age_days: float | None) -> tuple[int, int]:
         """Menghapus file cache lebih tua dari ``max_age_days`` (Phase 14 — Production Hardening).
 
         Mengembalikan ``(jumlah_file_dihapus, total_bytes_dibebaskan)``.
         """
-        return await asyncio.to_thread(cleanup_directory, self._cache_dir, max_age_days=max_age_days)
+        result = await asyncio.to_thread(cleanup_directory, self._cache_dir, max_age_days=max_age_days)
+        # Isi direktori berubah karena aplikasi sendiri -> buang memo statistik
+        # supaya angka di dashboard langsung akurat, bukan menunggu TTL habis.
+        self._stats_cache.invalidate()
+        return result

@@ -27,6 +27,7 @@ router = APIRouter(tags=["Health"])
     description="Mengembalikan status server saat ini. Dipakai untuk monitoring & Windows Service watchdog.",
 )
 async def health_check(settings: SettingsDep) -> HealthResponse:
+    """Mengembalikan status kesehatan server saat ini untuk monitoring & Windows Service watchdog."""
     return HealthResponse(
         status="ok",
         app_name=settings.app.name,

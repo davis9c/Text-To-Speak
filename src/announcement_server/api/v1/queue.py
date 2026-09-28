@@ -52,16 +52,22 @@ _DEFAULT_ACTIVE_STATUSES = DEFAULT_ACTIVE_STATUSES
     ),
 )
 async def speak(payload: SpeakRequest, manager: QueueManagerDep, settings: SettingsDep) -> QueueItemResponse:
+    """Menambahkan pengumuman baru ke antrean untuk diproses secara asinkron oleh QueueWorker.
+
+    Response 201 hanya berarti item berhasil masuk antrean; pantau progres lewat GET /queue.
+    """
     voice = payload.voice or settings.tts.default_voice
     item = await manager.enqueue(
         text=payload.resolved_text,
         priority=payload.priority,
+        engine=payload.engine,
         voice=voice,
         speed=payload.speed,
         pitch=payload.pitch,
         volume=payload.volume,
         announcement_type=payload.type,
         source_file=payload.file,
+        chime_file=payload.chime,
     )
     pending_items = await manager.list_items(statuses={QueueItemStatus.PENDING})
     position = manager.position_of(item.id, pending_items)
@@ -82,6 +88,7 @@ async def get_queue(
     manager: QueueManagerDep,
     status_filter: QueueItemStatus | None = Query(default=None, alias="status", description="Filter berdasarkan status tertentu"),
 ) -> QueueListResponse:
+    """Melihat isi antrean — default hanya item aktif (pending/processing); gunakan ``status`` untuk memfilter."""
     statuses = {status_filter} if status_filter is not None else _DEFAULT_ACTIVE_STATUSES
     items = await manager.list_items(statuses=statuses)
 
@@ -106,6 +113,7 @@ async def get_queue(
     description="Hanya item berstatus PENDING yang dapat dibatalkan. Mengembalikan 404 jika id tidak ditemukan.",
 )
 async def delete_queue_item(item_id: uuid.UUID, manager: QueueManagerDep) -> QueueItemResponse:
+    """Membatalkan satu item PENDING pada antrean; 404 jika id tidak ditemukan."""
     item = await manager.cancel_item(item_id)
     return QueueItemResponse.from_item(item)
 
@@ -117,5 +125,6 @@ async def delete_queue_item(item_id: uuid.UUID, manager: QueueManagerDep) -> Que
     description="Item yang sedang PROCESSING tidak terpengaruh dan akan tetap diselesaikan oleh worker.",
 )
 async def clear_queue(manager: QueueManagerDep) -> ClearResponse:
+    """Membatalkan seluruh item PENDING pada antrean (item PROCESSING tidak terpengaruh)."""
     cleared_count = await manager.clear()
     return ClearResponse(cleared_count=cleared_count)

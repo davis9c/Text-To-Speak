@@ -10,7 +10,6 @@ instalasi ffmpeg sungguhan.
 
 from __future__ import annotations
 
-import stat
 import sys
 import wave
 from pathlib import Path
@@ -25,6 +24,8 @@ from announcement_server.core.exceptions import (
 )
 from announcement_server.announcement.asset_resolver import AudioAssetResolver
 
+from tests.conftest import make_fake_executable
+
 FAKE_FFMPEG_SCRIPT = '''#!{python_executable}
 import sys
 import wave
@@ -38,6 +39,8 @@ if "FAIL_EXIT_CODE" in " ".join(args):
 
 if "FAIL_TIMEOUT" in " ".join(args):
     import time
+    sys.stdout.close()
+    sys.stderr.close()
     time.sleep(5)
     sys.exit(0)
 
@@ -59,10 +62,7 @@ def sounds_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def fake_ffmpeg_binary(tmp_path: Path) -> Path:
-    script_path = tmp_path / "fake_ffmpeg.py"
-    script_path.write_text(FAKE_FFMPEG_SCRIPT.format(python_executable=sys.executable))
-    script_path.chmod(script_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-    return script_path
+    return make_fake_executable(FAKE_FFMPEG_SCRIPT.format(python_executable=sys.executable), "fake_ffmpeg", tmp_path)
 
 
 def _write_wav(path: Path) -> None:
@@ -117,6 +117,18 @@ async def test_resolve_path_traversal_raises_not_found(sounds_dir: Path, config:
     resolver = AudioAssetResolver(config)
     with pytest.raises(AudioAssetNotFoundError):
         await resolver.resolve("../../../etc/passwd")
+
+
+async def test_resolve_absolute_path_injection_raises_not_found(sounds_dir: Path, config: AnnouncementConfig) -> None:
+    """RC1-5: kasus lebih subtle dari '../' -- ``Path(sounds_dir) / "/etc/passwd"`` di Python
+    SECARA DIAM-DIAM membuang ``sounds_dir`` sepenuhnya (semantik pathlib: operand kanan yang
+    absolut me-reset anchor), sehingga jika validasi hanya mengandalkan hasil join tanpa
+    containment check terhadap hasil resolve, path absolut bisa lolos tanpa memicu deteksi
+    '../'. Test ini memverifikasi ``_resolve_source_path`` tetap menolaknya lewat pengecekan
+    containment (`sounds_dir_resolved not in candidate.parents`), bukan sekadar mendeteksi '../'."""
+    resolver = AudioAssetResolver(config)
+    with pytest.raises(AudioAssetNotFoundError):
+        await resolver.resolve("/etc/passwd")
 
 
 async def test_resolve_mp3_converts_via_ffmpeg_and_caches(sounds_dir: Path, config: AnnouncementConfig) -> None:

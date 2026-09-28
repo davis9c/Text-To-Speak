@@ -28,6 +28,7 @@ class TTSQueueProcessor:
     """Item processor yang menjalankan pipeline TTS untuk setiap item antrean."""
 
     def __init__(self, tts_service: TTSService, queue_manager: QueueManager) -> None:
+        """Menyimpan service TTS dan manager antrean yang dipakai saat memproses item."""
         self._tts_service = tts_service
         self._queue_manager = queue_manager
 
@@ -47,6 +48,7 @@ class TTSQueueProcessor:
             speed=item.speed,
             pitch=item.pitch,
             volume=item.volume,
+            engine=item.engine,
         )
         await self._queue_manager.update_tts_result(
             item.id,

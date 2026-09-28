@@ -28,6 +28,9 @@ from announcement_server.tts.service import TTSService
 class FakeEngine(TTSEngine):
     """Engine TTS palsu: menghasilkan WAV valid tanpa memanggil Piper asli."""
 
+    def __init__(self, config: TTSConfig) -> None:
+        self.config = config
+
     async def synthesize(self, *, text: str, voice: str, speed: float) -> bytes:
         import io
         import wave

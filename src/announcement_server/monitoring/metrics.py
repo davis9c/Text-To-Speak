@@ -37,6 +37,7 @@ class MetricsCollector:
     """Counter kumulatif per jenis event + per alasan `finished` (completed/failed)."""
 
     def __init__(self) -> None:
+        """Menyiapkan counter kumulatif kosong + ``asyncio.Lock`` untuk akses bersamaan."""
         self._event_counts: dict[str, int] = defaultdict(int)
         self._finished_reason_counts: dict[str, int] = defaultdict(int)
         self._lock = asyncio.Lock()

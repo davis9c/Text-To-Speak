@@ -28,3 +28,11 @@ config/local.yaml
 # OS
 .DS_Store
 Thumbs.db
+
+# Test artifacts
+.coverage
+htmlcov/
+
+# Tooling CLI (output device code / kredensial — jangan pernah di-commit)
+.gh_auth_*.txt
+.gh_auth_*

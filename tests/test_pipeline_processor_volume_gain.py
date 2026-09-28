@@ -41,6 +41,9 @@ class FakeEngine(TTSEngine):
     """Engine TTS palsu: menghasilkan WAV dengan amplitudo tidak-nol (bukan silence) supaya
     penerapan volume_gain benar-benar bisa diverifikasi lewat perubahan byte audio."""
 
+    def __init__(self, config: TTSConfig) -> None:
+        self.config = config
+
     async def synthesize(self, *, text: str, voice: str, speed: float) -> bytes:
         return _make_wav_bytes()
 
@@ -148,7 +151,7 @@ async def test_custom_volume_gain_scales_audio_and_uses_temp_file(tts_service: T
     assert Path(result.audio_file_path).read_bytes() == original_bytes
 
     # File sementara yang sudah diputar dibersihkan (tidak menumpuk di disk).
-    assert not (scaled_dir / f"{item.id}.wav").exists()
+    assert not (scaled_dir / f"{item.id}_pengumuman.wav").exists()
 
 
 async def test_volume_gain_setter_is_applied_on_next_item(tts_service: TTSService, tmp_path: Path) -> None:

@@ -103,6 +103,7 @@ class ZoneResponse(BaseModel):
         pending_count: int,
         processing_count: int,
     ) -> "ZoneResponse":
+        """Membangun response zone dari metadata zone + status runtime (worker, playback, hitungan antrean)."""
         return cls(
             **zone.model_dump(),
             worker_running=worker_running,

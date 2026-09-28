@@ -43,6 +43,7 @@ class AnnouncementSourceProcessor:
         asset_resolver: AudioAssetResolver,
         queue_manager: QueueManager,
     ) -> None:
+        """Menyimpan processor TTS, resolver audio, dan QueueManager (murni penyimpanan referensi)."""
         self._tts_processor = tts_processor
         self._asset_resolver = asset_resolver
         self._queue_manager = queue_manager
@@ -55,6 +56,12 @@ class AnnouncementSourceProcessor:
             await self._tts_processor(item)
 
     async def _process_audio(self, item: QueueItem) -> None:
+        """Mer-resolve file audio statis item ke path WAV siap putar lalu simpan via ``update_tts_result``.
+
+        Melempar ``AudioAssetNotFoundError`` jika ``source_file`` tidak
+        diisi — error resolusi lain dibiarkan menjalar (kontrak sama seperti
+        kegagalan TTS, lihat docstring modul).
+        """
         if not item.source_file:
             raise AudioAssetNotFoundError(
                 "Item bertipe 'audio' tidak memiliki `source_file` yang valid.",

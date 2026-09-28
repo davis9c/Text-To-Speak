@@ -25,12 +25,15 @@ from starlette.middleware.gzip import GZipMiddleware
 
 from announcement_server import __version__
 from announcement_server.announcement.asset_resolver import AudioAssetResolver
+from announcement_server.announcement.chime_catalog import ChimeCatalog
+from announcement_server.api.v1.chimes import router as chimes_router
 from announcement_server.api.v1.dashboard import router as dashboard_router
 from announcement_server.api.v1.health import router as health_router
 from announcement_server.api.v1.maintenance import router as maintenance_router
 from announcement_server.api.v1.playback import router as playback_router
 from announcement_server.api.v1.queue import router as queue_router
 from announcement_server.api.v1.scheduler import router as scheduler_router
+from announcement_server.api.v1.tts import router as tts_router
 from announcement_server.api.v1.websocket import router as websocket_router
 from announcement_server.api.v1.zones import router as zones_router
 from announcement_server.core.config import AppSettings, get_settings, validate_runtime_config
@@ -42,6 +45,7 @@ from announcement_server.queueing.models import AnnouncementType, QueuePriority
 from announcement_server.scheduler.manager import SchedulerManager
 from announcement_server.scheduler.models import AnnouncementSpec, ScheduleRecurrence, parse_run_date, parse_time_of_day
 from announcement_server.tts.service import TTSService
+from announcement_server.tts.voice_registry import VoiceRegistry
 from announcement_server.websocket.manager import ConnectionManager
 from announcement_server.zones.manager import ZoneManager
 from announcement_server.zones.models import MAIN_ZONE_NAME
@@ -106,6 +110,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     tts_service = TTSService(settings.tts)
     app.state.tts_service = tts_service
 
+    # Voice Discovery (V2 Phase 5): VoiceRegistry dibangun & di-refresh SEKALI di sini
+    # (bukan background worker berulang -- sesuai batasan Phase 5) memakai
+    # TTSEngineManager milik `tts_service` di atas. Dipakai HANYA oleh endpoint
+    # discovery `GET /tts/*` (api/v1/tts.py) -- TIDAK memengaruhi pipeline sintesis
+    # TTS sama sekali (voice tetap divalidasi oleh engine masing-masing saat
+    # sintesis). Kegagalan discovery voice (mis. direktori model
+    # kosong) TIDAK BOLEH menggagalkan startup server -- sama seperti prinsip
+    # graceful degradation Piper/ffmpeg lainnya di lifespan ini.
+    try:
+        voice_registry = await VoiceRegistry.create(tts_service.engine_manager)
+    except Exception:  # noqa: BLE001 - kegagalan discovery voice tidak boleh menggagalkan startup
+        logger.exception("Voice discovery awal gagal, VoiceRegistry dimulai kosong.")
+        voice_registry = VoiceRegistry()
+    app.state.voice_registry = voice_registry
+
     # Announcement Engine (Phase 7): AudioAssetResolver dibangun sekali dan
     # di-share oleh SELURUH zone — rationale identik dengan TTSService di
     # atas (cache hasil konversi ffmpeg independen dari konsep zone).
@@ -116,6 +135,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # announcement/asset_resolver.py).
     asset_resolver = AudioAssetResolver(settings.announcement)
     app.state.asset_resolver = asset_resolver
+
+    # Chime Discovery: ChimeCatalog dibangun sekali dan di-share oleh seluruh
+    # router. Murni read-only (scan announcement.chime_dir per-request) —
+    # aman dibangun kapan pun karena konstruksinya TIDAK menyentuh filesystem
+    # (mirip dengan VoiceRegistry: direktori kosong/tidak ada = daftar kosong,
+    # bukan error startup).
+    chime_catalog = ChimeCatalog(settings.announcement)
+    app.state.chime_catalog = chime_catalog
 
     # Cache Cleanup (Phase 14): opsional, dikontrol lewat
     # maintenance.cache_cleanup_on_startup. Kegagalan cleanup TIDAK BOLEH
@@ -154,6 +181,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.metrics_collector = metrics_collector
 
     async def _fanout_event(event_type: str, data: dict) -> None:
+        """Fan-out event ke SEMUA listener (WebSocket broadcast + metrics).
+
+        Kegagalan SATU listener tidak boleh menggagalkan listener lain
+        (Exception Handling, Phase 14).
+        """
         # Exception Handling (Phase 14): kegagalan SATU listener (mis. bug di
         # MetricsCollector) tidak boleh menggagalkan listener lain ATAUPUN
         # proses Queue/Playback yang memanggil `on_event` ini.
@@ -256,10 +288,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 text=announcement_def.text,
                 file=announcement_def.file,
                 priority=QueuePriority(announcement_def.priority),
+                engine=announcement_def.engine,
                 voice=announcement_def.voice,
                 speed=announcement_def.speed,
                 pitch=announcement_def.pitch,
                 volume=announcement_def.volume,
+                chime=announcement_def.chime,
             ),
         )
     scheduler_manager.start()
@@ -271,6 +305,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # tidak membuat proses shutdown menggantung selamanya — uvicorn/NSSM (Phase 12)
     # pada akhirnya akan memaksa terminate proses jika ini juga timeout.
     async def _graceful_shutdown() -> None:
+        """Menghentikan scheduler & seluruh zone secara graceful saat shutdown (dibungkus timeout)."""
         await scheduler_manager.shutdown()
         await zone_manager.shutdown()
 
@@ -361,6 +396,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
     app.include_router(playback_router)
     app.include_router(zones_router)
     app.include_router(scheduler_router)
+    app.include_router(tts_router)
+    app.include_router(chimes_router)
     app.include_router(websocket_router)
     app.include_router(dashboard_router)
     app.include_router(maintenance_router)

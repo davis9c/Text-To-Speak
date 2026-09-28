@@ -41,6 +41,7 @@ class QueueWorker:
     """Background task tunggal yang mengonsumsi ``QueueManager`` secara terus-menerus."""
 
     def __init__(self, manager: QueueManager, item_processor: ItemProcessor = default_stub_processor) -> None:
+        """Menyimpan referensi manager & processor; worker belum berjalan (perlu ``start()``)."""
         self._manager = manager
         self._item_processor = item_processor
         self._task: asyncio.Task[None] | None = None
@@ -48,6 +49,7 @@ class QueueWorker:
 
     @property
     def is_running(self) -> bool:
+        """True jika background task sedang aktif dan belum selesai."""
         return self._running and self._task is not None and not self._task.done()
 
     def start(self) -> None:
@@ -73,6 +75,12 @@ class QueueWorker:
         logger.info("QueueWorker dihentikan.")
 
     async def _run(self) -> None:
+        """Loop utama worker: dequeue & proses item terus-menerus selama ``_running``.
+
+        Loop TIDAK BOLEH mati — error tak terduga ditangkap, di-log, lalu
+        tidur 1 detik sebelum iterasi berikutnya. ``CancelledError``
+        (pemicu dari ``stop()``) dibiarkan menjalar.
+        """
         while self._running:
             try:
                 item = await self._manager.dequeue_for_processing()
@@ -87,6 +95,13 @@ class QueueWorker:
                 await asyncio.sleep(1)
 
     async def _process_item(self, item: QueueItem) -> None:
+        """Menjalankan ``item_processor`` untuk satu item lalu menandai hasilnya.
+
+        Exception apa pun yang dilempar ``item_processor`` ditangkap di
+        sini dan item ditandai FAILED (via ``mark_failed``); jika sukses,
+        item ditandai COMPLETED (via ``mark_completed``). Error per-item
+        TIDAK boleh mematikan worker.
+        """
         try:
             await self._item_processor(item)
         except Exception as exc:  # noqa: BLE001 - error per-item tidak boleh mematikan worker

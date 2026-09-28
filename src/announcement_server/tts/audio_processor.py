@@ -86,6 +86,7 @@ class AudioProcessor:
 
     @staticmethod
     def _write_wav(frames: bytes, params: wave._wave_params) -> bytes:
+        """Membungkus ``frames`` dan ``params`` menjadi file WAV di memory, mengembalikan bytes-nya."""
         buffer = io.BytesIO()
         with wave.open(buffer, "wb") as writer:
             writer.setparams(params)

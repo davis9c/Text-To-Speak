@@ -44,6 +44,7 @@ router = APIRouter(tags=["Dashboard"])
 
 
 async def _build_cache_stats(directory: str, stats: tuple[int, int]) -> CacheStatsResponse:
+    """Membangun respons statistik cache dari pasangan ``(file_count, total_size_bytes)``."""
     file_count, total_size_bytes = stats
     return CacheStatsResponse(directory=directory, file_count=file_count, total_size_bytes=total_size_bytes)
 
@@ -65,6 +66,7 @@ async def get_status(
     connection_manager: ConnectionManagerDep,
     started_at: AppStartedAtDep,
 ) -> StatusResponse:
+    """Menggabungkan status seluruh zone, statistik cache TTS & Announcement Engine, jumlah client WebSocket, dan uptime server."""
     zones = zone_manager.list_zones()
     zone_responses = [await _build_zone_response(zone_manager, zone.name) for zone in zones]
 
@@ -102,6 +104,10 @@ async def get_history(
     ),
     limit: int = Query(default=100, ge=1, le=1000, description="Jumlah maksimum item yang dikembalikan"),
 ) -> HistoryResponse:
+    """Menampilkan riwayat item berstatus final lintas seluruh zone, diurutkan dari yang paling baru.
+
+    Gunakan ``zone`` untuk membatasi ke satu zone, ``status`` untuk memfilter status, dan ``limit`` untuk jumlah hasil.
+    """
     zone_names = [zone] if zone is not None else [z.name for z in zone_manager.list_zones()]
     # Memastikan `zone` yang diminta benar-benar ada — melempar ZoneNotFoundError (404) jika tidak,
     # konsisten dengan endpoint lain yang menerima nama zone (mis. GET /zones/{name}/queue).
@@ -113,7 +119,13 @@ async def get_history(
     items: list[HistoryItemResponse] = []
     for zone_name in zone_names:
         queue_manager = zone_manager.get_queue_manager(zone_name)
-        zone_items = await queue_manager.list_items(statuses=statuses)
+        # Hanya `limit` item terbaru per zone yang diambil, bukan seluruh riwayat
+        # zone itu. Karena hasil akhir tetap diurutkan & dipotong ke `limit`, dan
+        # tiap zone berkontribusi paling banyak `limit` item, ini memberi jawaban
+        # yang sama persis dengan mengambil seluruh riwayat — tanpa menyalin
+        # ribuan `QueueItem` yang kemudian dibuang (lihat
+        # `QueueManager.list_items_recent`).
+        zone_items = await queue_manager.list_items_recent(statuses=statuses, limit=limit)
         items.extend(HistoryItemResponse.from_item(item, zone=zone_name) for item in zone_items)
 
     items.sort(key=lambda i: i.updated_at, reverse=True)
@@ -137,12 +149,17 @@ async def get_metrics(
     metrics_collector: MetricsCollectorDep,
     started_at: AppStartedAtDep,
 ) -> MetricsResponse:
+    """Menghitung ringkasan angka untuk monitoring/dashboard: item per status, zone, jadwal aktif, cache, dan uptime."""
     zones = zone_manager.list_zones()
     totals: dict[str, int] = {}
     for zone in zones:
         queue_manager = zone_manager.get_queue_manager(zone.name)
-        for item in await queue_manager.list_items():
-            totals[item.status.value] = totals.get(item.status.value, 0) + 1
+        # `count_by_status()` hanya menghitung — tidak menyalin tiap item
+        # sebagai `model_copy()` pydantic seperti yang terjadi kalau endpoint ini
+        # memakai `list_items()` lalu `len()`. Dievaluasi ulang tiap polling
+        # monitoring, jadi selisihnya terasa nyata.
+        for status, count in (await queue_manager.count_by_status()).items():
+            totals[status.value] = totals.get(status.value, 0) + count
 
     active_schedules = sum(1 for schedule in scheduler_manager.list_schedules() if schedule.enabled)
 

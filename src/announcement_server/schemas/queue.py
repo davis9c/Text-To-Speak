@@ -40,6 +40,11 @@ class SpeakRequest(BaseModel):
                     "file": "sounds/bell.mp3",
                     "priority": "high",
                 },
+                {
+                    "type": "tts",
+                    "text": "Pengumuman dengan chime pembuka.",
+                    "chime": "chime.wav",
+                },
             ]
         }
     )
@@ -47,6 +52,13 @@ class SpeakRequest(BaseModel):
     type: AnnouncementType = Field(
         default=AnnouncementType.TTS,
         description="Sumber audio pengumuman ini: 'tts' (sintesis dari `text`) atau 'audio' (file statis dari `file`).",
+    )
+    engine: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Nama TTS engine yang dipakai (mis. 'piper'). Kosongkan (null) untuk memakai engine default "
+        "server (perilaku V1, tidak berubah). Mengembalikan error jika nama engine tidak dikenali/tidak tersedia "
+        "(tidak fallback diam-diam ke engine default). Diabaikan jika type='audio'.",
     )
     text: str | None = Field(
         default=None,
@@ -65,6 +77,7 @@ class SpeakRequest(BaseModel):
     )
     voice: str | None = Field(
         default=None,
+        max_length=200,
         description="Nama voice/model TTS. Kosongkan (null) untuk memakai default server (tts.default_voice). "
         "Diabaikan jika type='audio'.",
     )
@@ -88,7 +101,19 @@ class SpeakRequest(BaseModel):
         default=1.0,
         ge=0.0,
         le=2.0,
-        description="Volume relatif. 1.0 = normal, 0.0 = bisu, 2.0 = 2x lebih keras.",
+        description=(
+            "Volume relatif. 1.0 = normal, 0.0 = bisu, 2.0 = 2x lebih keras. "
+            "Berlaku untuk SELURUH file yang diputar item ini: pengumuman utama (TTS maupun file statis) "
+            "DAN chime pembuka bila ada. Berlaku terpisah dari volume per-zone (lihat PUT /zones/{name})."
+        ),
+    )
+    chime: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Path file audio chime (relatif terhadap announcement.sounds_dir pada config.yaml), "
+        "mis. 'chime.wav'. OPSIONAL — jika diisi, chime diputar SEKALI SEBELUM pengumuman utama "
+        "(berlaku untuk type='tts' maupun type='audio'), dan ikut dikenai `volume` yang sama. "
+        "Kosongkan (null) untuk tanpa chime.",
     )
 
     @model_validator(mode="after")
@@ -136,6 +161,11 @@ class QueueItemResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     error_message: str | None = None
+    engine: str | None = Field(
+        default=None,
+        description="Nama TTS engine yang dipakai untuk item ini. null berarti memakai engine default server "
+        "(diabaikan jika type='audio').",
+    )
     voice: str = Field(description="Voice/model TTS yang dipakai untuk item ini (diabaikan jika type='audio')")
     speed: float = Field(description="Kecepatan bicara yang dipakai untuk item ini (diabaikan jika type='audio')")
     pitch: float = Field(description="Pitch yang dipakai untuk item ini (diabaikan jika type='audio')")
@@ -146,6 +176,10 @@ class QueueItemResponse(BaseModel):
     cache_hit: bool | None = Field(
         default=None,
         description="True jika audio diambil dari cache (TTS) atau file WAV dipakai langsung/hasil konversi sudah ada (audio)",
+    )
+    chime: str | None = Field(
+        default=None,
+        description="Path file audio chime yang diputar sebelum pengumuman utama. null = tanpa chime.",
     )
     position: int | None = Field(
         default=None,
@@ -164,6 +198,7 @@ class QueueItemResponse(BaseModel):
         data = item.model_dump()
         data["type"] = data.pop("announcement_type")
         data["file"] = data.pop("source_file")
+        data["chime"] = data.pop("chime_file")
         return cls(**data, position=position)
 
 

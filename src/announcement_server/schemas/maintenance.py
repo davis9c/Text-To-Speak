@@ -9,14 +9,18 @@ class CacheCleanupRequest(BaseModel):
     """Request body untuk POST /maintenance/cache/cleanup. Seluruh field opsional."""
 
     tts_max_age_days: float | None = Field(
-        default=None, ge=0, description="Override tts.cache_max_age_days untuk pemanggilan ini saja."
+        default=None, ge=0, description="Override tts.cache_max_age_days untuk pemanggilan ini saja. "
+        "null = pakai nilai dari config (yang default-nya null = tidak ada batas usia, jadi tidak ada file yang dihapus)."
     )
     announcement_max_age_days: float | None = Field(
-        default=None, ge=0, description="Override announcement.cache_max_age_days untuk pemanggilan ini saja."
+        default=None, ge=0, description="Override announcement.cache_max_age_days untuk pemanggilan ini saja. "
+        "null = pakai nilai dari config (yang default-nya null = tidak ada batas usia, jadi tidak ada file yang dihapus)."
     )
 
 
 class CacheCleanupStats(BaseModel):
+    """Statistik hasil cleanup satu cache (TTS atau announcement audio)."""
+
     deleted_count: int = Field(description="Jumlah file yang dihapus")
     freed_bytes: int = Field(description="Total ukuran file yang dihapus (bytes)")
 

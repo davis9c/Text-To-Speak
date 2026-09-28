@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from announcement_server.core.config import TTSConfig
+from announcement_server.core.exceptions import TTSEngineNotAvailableError, VoiceNotFoundError
 from announcement_server.tts.engine_base import TTSEngine
 from announcement_server.tts.engine_factory import EngineFactory
 from announcement_server.tts.service import TTSService
@@ -38,9 +39,11 @@ class FakeEngine(TTSEngine):
 
     def __init__(self, config: TTSConfig) -> None:
         self.call_count = 0
+        self.last_voice: str | None = None
 
     async def synthesize(self, *, text: str, voice: str, speed: float) -> bytes:
         self.call_count += 1
+        self.last_voice = voice
         return _make_tone_wav()
 
 
@@ -58,7 +61,7 @@ def tts_config(tmp_path: Path) -> TTSConfig:
 
 async def test_synthesize_cache_miss_then_hit(tts_config: TTSConfig) -> None:
     service = TTSService(tts_config)
-    fake_engine: FakeEngine = service._engine  # type: ignore[assignment]
+    fake_engine: FakeEngine = service._engine_manager.get()  # type: ignore[assignment]
 
     first_result = await service.synthesize(text="Halo", voice="v1", speed=1.0, pitch=1.0, volume=1.0)
     assert first_result.cache_hit is False
@@ -73,7 +76,7 @@ async def test_synthesize_cache_miss_then_hit(tts_config: TTSConfig) -> None:
 
 async def test_synthesize_different_params_bypasses_cache(tts_config: TTSConfig) -> None:
     service = TTSService(tts_config)
-    fake_engine: FakeEngine = service._engine  # type: ignore[assignment]
+    fake_engine: FakeEngine = service._engine_manager.get()  # type: ignore[assignment]
 
     await service.synthesize(text="Halo", voice="v1", speed=1.0, pitch=1.0, volume=1.0)
     await service.synthesize(text="Halo", voice="v1", speed=1.5, pitch=1.0, volume=1.0)  # speed beda
@@ -92,3 +95,340 @@ async def test_synthesize_applies_volume_and_pitch_post_processing(tts_config: T
     # Volume berbeda -> hasil audio (setelah post-processing) berbeda -> cache key beda -> file beda.
     assert normal_result.audio_file_path != louder_result.audio_file_path
     assert normal_bytes != louder_bytes
+
+
+# --- V2 Phase 2 — engine selection ------------------------------------------
+
+
+async def test_synthesize_without_engine_uses_default_engine(tts_config: TTSConfig) -> None:
+    """Backward compat: `engine` tidak diberikan (None) -> pakai engine default server."""
+    service = TTSService(tts_config)
+    fake_engine: FakeEngine = service._engine_manager.get()  # type: ignore[assignment]
+
+    result = await service.synthesize(text="Halo", voice="v1", speed=1.0, pitch=1.0, volume=1.0)
+
+    assert result.cache_hit is False
+    assert fake_engine.call_count == 1
+
+
+async def test_synthesize_with_explicit_matching_default_engine_name_hits_same_cache(tts_config: TTSConfig) -> None:
+    """Memberikan `engine` yang namanya SAMA dengan default engine harus menghasilkan cache key
+    yang identik dengan tidak memberikan `engine` sama sekali."""
+    service = TTSService(tts_config)
+
+    without_engine = await service.synthesize(text="Halo", voice="v1", speed=1.0, pitch=1.0, volume=1.0)
+    with_engine = await service.synthesize(
+        text="Halo", voice="v1", speed=1.0, pitch=1.0, volume=1.0, engine="fake_test_engine"
+    )
+
+    assert with_engine.audio_file_path == without_engine.audio_file_path
+    assert with_engine.cache_hit is True
+
+
+async def test_synthesize_with_unknown_engine_raises_and_does_not_call_default_engine(tts_config: TTSConfig) -> None:
+    """Engine tidak dikenal -> error, TIDAK fallback diam-diam ke engine default."""
+    service = TTSService(tts_config)
+    fake_engine: FakeEngine = service._engine_manager.get()  # type: ignore[assignment]
+
+    with pytest.raises(TTSEngineNotAvailableError):
+        await service.synthesize(text="Halo", voice="v1", speed=1.0, pitch=1.0, volume=1.0, engine="engine_tak_dikenal")
+
+    assert fake_engine.call_count == 0
+
+
+async def test_cache_key_distinguishes_between_engines(tmp_path: Path) -> None:
+    """Cache HARUS tetap membedakan engine (Phase 1: cache key sudah mencakup `engine`) —
+    dua engine berbeda untuk parameter lain yang identik tidak boleh saling bertabrakan di cache."""
+    EngineFactory.register("second_fake_test_engine", FakeEngine)
+    try:
+        config = TTSConfig(engine="fake_test_engine", cache_dir=str(tmp_path / "cache"))
+        service = TTSService(config)
+
+        # Engine kedua belum "aktif" di TTSEngineManager (hanya default engine yang dibangun
+        # eagerly, sesuai TTSEngineManager) — konstruksi manual di sini murni untuk memverifikasi
+        # AudioCache.compute_key() sendiri tetap membedakan nama engine end-to-end lewat service
+        # dengan menukar default engine pada instance TTSService kedua.
+        config_other_default = TTSConfig(engine="second_fake_test_engine", cache_dir=str(tmp_path / "cache"))
+        service_other_default = TTSService(config_other_default)
+
+        result_a = await service.synthesize(text="Sama", voice="v1", speed=1.0, pitch=1.0, volume=1.0)
+        result_b = await service_other_default.synthesize(text="Sama", voice="v1", speed=1.0, pitch=1.0, volume=1.0)
+
+        assert result_a.audio_file_path != result_b.audio_file_path
+    finally:
+        del EngineFactory._registry["second_fake_test_engine"]
+
+
+# --- Default voice fallback (safety-net) ------------------------------------
+
+
+class FakeEngineWithVoices(TTSEngine):
+    """Engine palsu dengan voice discovery (untuk verifikasi fallback default voice)."""
+
+    def __init__(self, config: TTSConfig) -> None:
+        self.call_count = 0
+        self.last_voice: str | None = None
+
+    async def synthesize(self, *, text: str, voice: str, speed: float) -> bytes:
+        self.call_count += 1
+        self.last_voice = voice
+        return _make_tone_wav()
+
+    async def list_voices(self):
+        from announcement_server.tts.voice_profile import VoiceProfile
+
+        return [
+            VoiceProfile(id="v1", engine="fake_voices_engine", name="v1", source="x", available=True),
+            VoiceProfile(id="v2", engine="fake_voices_engine", name="v2", source="x", available=True),
+        ]
+
+
+@pytest.fixture(autouse=True)
+def register_fake_voices_engine():
+    EngineFactory.register("fake_voices_engine", FakeEngineWithVoices)
+    yield
+    del EngineFactory._registry["fake_voices_engine"]
+
+
+async def test_synthesize_default_voice_available_uses_it_as_is(tmp_path: Path) -> None:
+    """Jika `tts.default_voice` benar-benar tersedia di engine, TIDAK ada fallback."""
+    config = TTSConfig(
+        engine="fake_voices_engine",
+        default_voice="v1",
+        cache_dir=str(tmp_path / "cache"),
+    )
+    service = TTSService(config)
+    fake: FakeEngineWithVoices = service._engine_manager.get()  # type: ignore[assignment]
+
+    result = await service.synthesize(text="Halo", voice="v1", speed=1.0, pitch=1.0, volume=1.0)
+
+    assert result.cache_hit is False
+    assert fake.last_voice == "v1"
+
+
+async def test_synthesize_default_voice_missing_falls_back_to_first_available(tmp_path: Path) -> None:
+    """Safety-net: default voice tidak tersedia -> fallback ke voice pertama yang ada,
+    supaya request tanpa `voice` tetap berhasil (bukan langsung failed)."""
+    config = TTSConfig(
+        engine="fake_voices_engine",
+        default_voice="en_US-tidak-ada",
+        cache_dir=str(tmp_path / "cache"),
+    )
+    service = TTSService(config)
+    fake: FakeEngineWithVoices = service._engine_manager.get()  # type: ignore[assignment]
+
+    result = await service.synthesize(text="Halo", voice="en_US-tidak-ada", speed=1.0, pitch=1.0, volume=1.0)
+
+    assert result.cache_hit is False
+    assert fake.call_count == 1
+    assert fake.last_voice == "v1"  # fallback ke voice pertama yang tersedia
+
+
+async def test_synthesize_explicit_voice_missing_does_not_fall_back(tmp_path: Path) -> None:
+    """Voice EKSPLIT yang tidak tersedia TIDAK boleh di-fallback (semantik terdokumentasi:
+    request eksplisit dengan voice salah tetap memakai voice tsb — validasi/discovery tetap
+    tanggung jawab engine)."""
+    config = TTSConfig(
+        engine="fake_voices_engine",
+        default_voice="v1",
+        cache_dir=str(tmp_path / "cache"),
+    )
+    service = TTSService(config)
+    fake: FakeEngineWithVoices = service._engine_manager.get()  # type: ignore[assignment]
+
+    result = await service.synthesize(text="Halo", voice="eksplisit-salah", speed=1.0, pitch=1.0, volume=1.0)
+
+    assert result.cache_hit is False
+    assert fake.last_voice == "eksplisit-salah"  # voice eksplisit dikirim apa adanya
+
+
+# --- Voice discovery di-memo (tidak dipanggil ulang tiap cache miss) ---------
+
+
+class CountingVoicesEngine(TTSEngine):
+    """Engine yang MENGHITUNG pemanggilan `list_voices()` & `synthesize()`.
+
+    `available_ids` = apa yang dilaporkan `list_voices()`.
+    `reject_voices` = voice yang ditolak `synthesize()` (meniru engine yang
+    gagal menemukan modelnya). Keduanya sengaja dipisah supaya test bisa
+    menyoroti voice mana yang tersedia menurut discovery tanpa ikut mengubah
+    perilaku sintesis.
+    """
+
+    def __init__(self, config: TTSConfig) -> None:
+        self.discovery_calls = 0
+        self.synthesize_calls = 0
+        self.available_ids = ("v1", "v2")
+        self.reject_voices: set[str] = set()
+        self.last_voice: str | None = None
+
+    async def synthesize(self, *, text: str, voice: str, speed: float) -> bytes:
+        self.synthesize_calls += 1
+        self.last_voice = voice
+        if voice in self.reject_voices:
+            raise VoiceNotFoundError(f"Voice '{voice}' tidak ditemukan.")
+        return _make_tone_wav()
+
+    async def list_voices(self):
+        self.discovery_calls += 1
+        from announcement_server.tts.voice_profile import VoiceProfile
+
+        return [
+            VoiceProfile(id=vid, engine="counting_voices_engine", name=vid, source="x", available=True)
+            for vid in self.available_ids
+        ]
+
+
+@pytest.fixture(autouse=True)
+def register_counting_voices_engine():
+    EngineFactory.register("counting_voices_engine", CountingVoicesEngine)
+    yield
+    del EngineFactory._registry["counting_voices_engine"]
+
+
+def _counting_service(tmp_path: Path, *, default_voice: str = "v1") -> tuple[TTSService, CountingVoicesEngine]:
+    service = TTSService(
+        TTSConfig(
+            engine="counting_voices_engine",
+            default_voice=default_voice,
+            cache_dir=str(tmp_path / "cache"),
+        )
+    )
+    return service, service._engine_manager.get()  # type: ignore[return-value]
+
+
+async def test_voice_discovery_is_not_repeated_per_cache_miss(tmp_path: Path) -> None:
+    """Voice discovery (`list_voices()`) hanya boleh dipanggil SEKALI untuk banyak
+    cache miss beruntun pada voice default.
+
+    Tanpa memo, tiap pengumuman unik akan memicu `PiperEngine` memindai ulang
+    seluruh direktori model atau `EspeakEngine` menjalankan subprocess
+    `espeak-ng --voices` — biaya yang berulang di jalur terpanas server tanpa
+    memberi manfaat apa pun.
+    """
+    service, engine = _counting_service(tmp_path)
+
+    for i in range(10):
+        await service.synthesize(text=f"Pesan {i}", voice="v1", speed=1.0, pitch=1.0, volume=1.0)
+
+    assert engine.synthesize_calls == 10  # 10 teks unik = 10 cache miss
+    assert engine.discovery_calls == 1  # ...tapi discovery cukup sekali
+
+
+async def test_voice_discovery_memo_does_not_affect_explicit_voice(tmp_path: Path) -> None:
+    """Voice EKSPLISIT tidak pernah memicu discovery sama sekali (mempertahankan
+    semantik 'voice salah tetap dikirim apa adanya')."""
+    service, engine = _counting_service(tmp_path)
+
+    for i in range(3):
+        await service.synthesize(text=f"Pesan {i}", voice="voice-eksplisit", speed=1.0, pitch=1.0, volume=1.0)
+
+    assert engine.synthesize_calls == 3
+    assert engine.discovery_calls == 0
+    assert engine.last_voice == "voice-eksplisit"
+
+
+async def test_voice_discovery_memo_invalidated_when_engine_reports_voice_not_found(tmp_path: Path) -> None:
+    """Kalau engine melaporkan `VoiceNotFoundError`, daftar voice yang di-memo dianggap
+    usang dan dibuang —     supaya model yang baru ditambahkan operator terbaca tanpa
+    restart server (tidak terkunci sampai TTL habis)."""
+    service, engine = _counting_service(tmp_path, default_voice="v1")
+
+    await service.synthesize(text="Awal", voice="v1", speed=1.0, pitch=1.0, volume=1.0)
+    assert engine.discovery_calls == 1
+
+    # Engine tiba-tiba tidak lagi mengenali default voice (mis. model dicabut).
+    engine.reject_voices = {"v1"}
+    with pytest.raises(VoiceNotFoundError):
+        await service.synthesize(text="Setelah model hilang", voice="v1", speed=1.0, pitch=1.0, volume=1.0)
+
+    # Request berikutnya harus discovery ULANG (memo sudah dibuang).
+    with pytest.raises(VoiceNotFoundError):
+        await service.synthesize(text="Coba lagi", voice="v1", speed=1.0, pitch=1.0, volume=1.0)
+    assert engine.discovery_calls == 2
+
+
+async def test_voice_discovery_failure_is_not_memoized(tmp_path: Path) -> None:
+    """Kegagalan discovery tidak boleh di-memo, agar error sementara (mis. drive
+    eksternal sempat tidak terjangkau) tidak terkunci sampai TTL habis."""
+    service, engine = _counting_service(tmp_path)
+    fail = True
+
+    async def flaky_list_voices():
+        if fail:
+            engine.discovery_calls += 1
+            raise RuntimeError("discovery gagal sementara")
+        return await CountingVoicesEngine.list_voices(engine)
+
+    engine.list_voices = flaky_list_voices  # type: ignore[method-assign]
+
+    for i in range(3):
+        await service.synthesize(text=f"Pesan {i}", voice="v1", speed=1.0, pitch=1.0, volume=1.0)
+
+    assert engine.synthesize_calls == 3  # kegagalan discovery tidak mematikan sintesis
+    assert engine.discovery_calls == 3  # dan TIDAK di-memo -> dicoba lagi tiap request
+
+    fail = False
+    await service.synthesize(text="Setelah pulih", voice="v1", speed=1.0, pitch=1.0, volume=1.0)
+    assert engine.discovery_calls == 4  # dipanggil lagi, lalu berhasil -> mulai di-memo
+
+
+# --- Phase 13 — Multi-Engine Validation: urutan Queue lintas 3 engine sekaligus --
+
+
+async def test_queue_sequence_piper_espeak_styletts2_piper_does_not_conflict(tmp_path: Path) -> None:
+    """VALIDASI QUEUE (Phase 13): membuktikan urutan Piper -> eSpeak -> StyleTTS2 -> Piper
+    lewat SATU TTSService/TTSEngineManager (persis seperti QueueWorker memproses item
+    berurutan dari QueueManager) tidak saling mengganggu -- tidak ada state yang bocor
+    antar-engine, dan engine yang SAMA dipanggil dua kali (di awal & akhir urutan) tetap
+    menghasilkan cache HIT yang benar meski ada 2 engine lain diproses di antaranya."""
+    EngineFactory.register("fake_piper_seq", FakeEngine)
+    EngineFactory.register("fake_espeak_seq", FakeEngine)
+    EngineFactory.register("fake_styletts2_seq", FakeEngine)
+    try:
+        config = TTSConfig(
+            engine="fake_piper_seq",
+            additional_engines=["fake_espeak_seq", "fake_styletts2_seq"],
+            cache_dir=str(tmp_path / "cache"),
+        )
+        service = TTSService(config)
+        piper_engine_instance = service.engine_manager.get("fake_piper_seq")
+        espeak_engine_instance = service.engine_manager.get("fake_espeak_seq")
+        styletts2_engine_instance = service.engine_manager.get("fake_styletts2_seq")
+
+        # Urutan PERSIS seperti yang diminta Phase 13: Piper -> eSpeak -> StyleTTS2 -> Piper.
+        result_piper_1 = await service.synthesize(
+            text="Pengumuman 1", voice="v1", speed=1.0, pitch=1.0, volume=1.0, engine="fake_piper_seq"
+        )
+        result_espeak = await service.synthesize(
+            text="Pengumuman 1", voice="v1", speed=1.0, pitch=1.0, volume=1.0, engine="fake_espeak_seq"
+        )
+        result_styletts2 = await service.synthesize(
+            text="Pengumuman 1", voice="v1", speed=1.0, pitch=1.0, volume=1.0, engine="fake_styletts2_seq"
+        )
+        result_piper_2 = await service.synthesize(
+            text="Pengumuman 1", voice="v1", speed=1.0, pitch=1.0, volume=1.0, engine="fake_piper_seq"
+        )
+
+        # Tidak ada exception di atas (assert implisit -- kode ini tidak akan sampai sini jika ada).
+
+        # Cache tetap engine-aware: teks/voice/parameter identik, tapi engine berbeda -> file cache berbeda.
+        assert result_piper_1.audio_file_path != result_espeak.audio_file_path
+        assert result_espeak.audio_file_path != result_styletts2.audio_file_path
+        assert result_piper_1.audio_file_path != result_styletts2.audio_file_path
+
+        # Panggilan Piper ke-2 (setelah 2 engine lain diproses di antaranya) HARUS cache HIT
+        # terhadap panggilan Piper ke-1 -- membuktikan tidak ada state yang bocor/rusak akibat
+        # engine lain yang diproses di tengah urutan.
+        assert result_piper_2.audio_file_path == result_piper_1.audio_file_path
+        assert result_piper_2.cache_hit is True
+
+        # Setiap engine instance HANYA dipanggil sesuai jumlah cache MISS-nya sendiri --
+        # tidak ada pemanggilan silang ke engine yang salah.
+        assert piper_engine_instance.call_count == 1  # panggilan ke-2 adalah cache hit, engine tidak dipanggil lagi
+        assert espeak_engine_instance.call_count == 1
+        assert styletts2_engine_instance.call_count == 1
+    finally:
+        del EngineFactory._registry["fake_piper_seq"]
+        del EngineFactory._registry["fake_espeak_seq"]
+        del EngineFactory._registry["fake_styletts2_seq"]

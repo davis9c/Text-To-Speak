@@ -14,6 +14,7 @@ import uuid
 from typing import Any
 
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -35,6 +36,7 @@ class AppError(Exception):
     error_code: str = "INTERNAL_ERROR"
 
     def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
+        """Menyimpan ``message`` (aman ditampilkan ke client) dan ``details`` opsional."""
         super().__init__(message)
         self.message = message
         self.details = details or {}
@@ -236,6 +238,7 @@ class InvalidScheduleError(ValidationAppError):
 
 
 def _error_response(request_id: str, error_code: str, message: str, details: dict[str, Any]) -> dict[str, Any]:
+    """Membangun body response error JSON seragam untuk seluruh exception handler."""
     return {
         "success": False,
         "error": {
@@ -255,6 +258,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
+        """Exception handler AppError: log warning + response JSON dengan kode & detail exception."""
         request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
         logger.warning(
             "AppError ditangani: %s (code=%s, path=%s, request_id=%s)",
@@ -270,6 +274,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        """Exception handler validasi request Pydantic: response 422 dengan daftar error (JSON-safe)."""
         request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
         logger.info("Request validation error pada path=%s: %s", request.url.path, exc.errors())
         return JSONResponse(
@@ -278,12 +283,17 @@ def register_exception_handlers(app: FastAPI) -> None:
                 request_id,
                 "REQUEST_VALIDATION_ERROR",
                 "Request tidak valid.",
-                {"errors": exc.errors()},
+                # `jsonable_encoder` (pola yang sama seperti handler default FastAPI):
+                # pydantic v2 dapat menaruh objek non-JSON (mis. instance ``ValueError``
+                # pada ctx konversi tipe) di dalam ``exc.errors()`` -- tanpa ini, membangun
+                # response 422 melempar ``TypeError: ... is not JSON serializable``.
+                {"errors": jsonable_encoder(exc.errors())},
             ),
         )
 
     @app.exception_handler(Exception)
     async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+        """Jaring pengaman terakhir: exception tak terduga -> log lengkap + response 500 generik."""
         request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
         logger.exception(
             "Unhandled exception pada path=%s (request_id=%s): %s",

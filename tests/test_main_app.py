@@ -8,7 +8,12 @@ Memakai fixture ``client`` dari ``conftest.py`` (app sungguhan via
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
+
+from announcement_server.core.config import get_settings
+from announcement_server.core.exceptions import TTSEngineNotAvailableError
+from announcement_server.main import create_app
 
 
 def test_response_includes_request_id_header(client: TestClient) -> None:
@@ -64,3 +69,24 @@ def test_large_response_is_gzip_compressed(client: TestClient) -> None:
     response = client.get("/openapi.json", headers={"Accept-Encoding": "gzip"})
     assert response.status_code == 200
     assert response.headers.get("content-encoding") == "gzip"
+
+
+# --- RC1-6: startup gagal-jelas untuk konfigurasi salah ---------------------------
+
+
+def test_startup_fails_clearly_when_tts_engine_is_unregistered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """RC1-6: menutup celah nyata -- sebelumnya TIDAK ADA test yang benar-benar menjalankan
+    `create_app()` end-to-end dengan config bermasalah untuk memverifikasi klaim RC1-1/RC1-4
+    bahwa 'startup gagal dengan pesan yang jelas' jika `tts.engine` salah ketik/tidak terdaftar.
+    Test ini membuktikan (bukan berasumsi) bahwa: (1) startup benar-benar gagal (bukan diam-diam
+    lolos dengan state rusak), dan (2) exception yang terlempar informatif (menyebutkan nama
+    engine yang diminta)."""
+    monkeypatch.setenv("APP_TTS__ENGINE", "engine_yang_benar_benar_tidak_terdaftar")
+    get_settings.cache_clear()
+    app = create_app()
+
+    with pytest.raises(TTSEngineNotAvailableError) as exc_info, TestClient(app):
+        pass  # lifespan startup dijalankan saat TestClient di-__enter__, HARUS raise di sini
+
+    assert exc_info.value.details["requested_engine"] == "engine_yang_benar_benar_tidak_terdaftar"
+    get_settings.cache_clear()

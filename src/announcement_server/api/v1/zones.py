@@ -53,15 +53,18 @@ async def _build_zone_response(zone_manager: ZoneManager, name: str) -> ZoneResp
     """Menggabungkan metadata Zone + status runtime (worker/playback/queue count/current_file)."""
     zone = zone_manager.get_zone(name)
     queue_manager = zone_manager.get_queue_manager(name)
-    pending = await queue_manager.list_items(statuses={QueueItemStatus.PENDING})
-    processing = await queue_manager.list_items(statuses={QueueItemStatus.PROCESSING})
+    # `count_by_status()` menggantikan `list_items()` yang menyalin seluruh
+    # registry sebagai `model_copy()` pydantic hanya untuk di-`len()`-kan.
+    # Dipanggil pada setiap GET /zones & GET /status (polling dashboard), jadi
+    # penghematan di sini langsung terasa per request.
+    counts = await queue_manager.count_by_status()
     return ZoneResponse.build(
         zone,
         worker_running=zone_manager.is_worker_running(name),
         playback_state=zone_manager.get_playback_state(name),
         current_file=zone_manager.get_current_file(name),
-        pending_count=len(pending),
-        processing_count=len(processing),
+        pending_count=counts.get(QueueItemStatus.PENDING, 0),
+        processing_count=counts.get(QueueItemStatus.PROCESSING, 0),
     )
 
 
@@ -72,6 +75,7 @@ async def _build_zone_response(zone_manager: ZoneManager, name: str) -> ZoneResp
     description="Menampilkan seluruh zone (termasuk 'main') beserta status runtime masing-masing.",
 )
 async def list_zones(zone_manager: ZoneManagerDep) -> ZoneListResponse:
+    """Menampilkan seluruh zone (termasuk 'main') beserta status runtime masing-masing."""
     zones = zone_manager.list_zones()
     responses = [await _build_zone_response(zone_manager, zone.name) for zone in zones]
     return ZoneListResponse(zones=responses, count=len(responses))
@@ -88,6 +92,7 @@ async def list_zones(zone_manager: ZoneManagerDep) -> ZoneListResponse:
     ),
 )
 async def create_zone(payload: ZoneCreateRequest, zone_manager: ZoneManagerDep) -> ZoneResponse:
+    """Membuat zone baru lengkap dengan Queue, Worker, dan Playback miliknya sendiri; 409 jika nama sudah dipakai."""
     await zone_manager.create_zone(
         payload.name,
         device_id=payload.device_id,
@@ -107,6 +112,7 @@ async def create_zone(payload: ZoneCreateRequest, zone_manager: ZoneManagerDep) 
     description="Pembaruan parsial — hanya field yang dikirim pada body yang diubah. Mengembalikan 404 jika zone tidak ditemukan.",
 )
 async def update_zone(name: str, payload: ZoneUpdateRequest, zone_manager: ZoneManagerDep) -> ZoneResponse:
+    """Memperbarui zone secara parsial — hanya field yang dikirim pada body yang diubah; 404 jika tidak ditemukan."""
     update_kwargs = payload.model_dump(exclude_unset=True)
     await zone_manager.update_zone(name, **update_kwargs)
     return await _build_zone_response(zone_manager, name)
@@ -122,6 +128,7 @@ async def update_zone(name: str, payload: ZoneUpdateRequest, zone_manager: ZoneM
     ),
 )
 async def delete_zone(name: str, zone_manager: ZoneManagerDep) -> ZoneDeleteResponse:
+    """Menghapus zone setelah menghentikan worker & playback secara graceful; zone 'main' dilindungi (409)."""
     await zone_manager.delete_zone(name)
     return ZoneDeleteResponse(name=name, deleted=True)
 
@@ -140,6 +147,7 @@ async def get_zone_queue(
     zone_manager: ZoneManagerDep,
     status_filter: QueueItemStatus | None = Query(default=None, alias="status", description="Filter berdasarkan status tertentu"),
 ) -> QueueListResponse:
+    """Melihat isi antrean satu zone — default hanya item aktif (pending/processing); gunakan ``status`` untuk memfilter."""
     queue_manager = zone_manager.get_queue_manager(name)
     statuses = {status_filter} if status_filter is not None else DEFAULT_ACTIVE_STATUSES
     items = await queue_manager.list_items(statuses=statuses)
@@ -167,6 +175,7 @@ async def get_zone_queue(
     description="Sama seperti POST /device (Phase 4), namun khusus untuk output device milik satu zone.",
 )
 async def select_zone_device(name: str, payload: SelectDeviceRequest, zone_manager: ZoneManagerDep) -> PlaybackStatusResponse:
+    """Memilih output device aktif untuk satu zone (sama seperti POST /device)."""
     await zone_manager.update_zone(name, device_id=payload.device_id)
     playback_manager = zone_manager.get_playback_manager(name)
     if playback_manager is None:
@@ -190,6 +199,7 @@ async def select_zone_device(name: str, payload: SelectDeviceRequest, zone_manag
     ),
 )
 async def speak_to_zone(name: str, payload: SpeakRequest, zone_manager: ZoneManagerDep, settings: SettingsDep) -> QueueItemResponse:
+    """Menambahkan pengumuman ke antrean & jalur audio milik satu zone; 409 jika zone nonaktif (enabled=false)."""
     zone = zone_manager.get_zone(name)
     if not zone.enabled:
         raise ZoneDisabledError(
@@ -202,12 +212,14 @@ async def speak_to_zone(name: str, payload: SpeakRequest, zone_manager: ZoneMana
     item = await queue_manager.enqueue(
         text=payload.resolved_text,
         priority=payload.priority,
+        engine=payload.engine,
         voice=voice,
         speed=payload.speed,
         pitch=payload.pitch,
         volume=payload.volume,
         announcement_type=payload.type,
         source_file=payload.file,
+        chime_file=payload.chime,
     )
     pending_items = await queue_manager.list_items(statuses={QueueItemStatus.PENDING})
     position = queue_manager.position_of(item.id, pending_items)

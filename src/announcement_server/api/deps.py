@@ -14,6 +14,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from announcement_server.announcement.asset_resolver import AudioAssetResolver
+from announcement_server.announcement.chime_catalog import ChimeCatalog
 from announcement_server.core.config import AppSettings, get_settings
 from announcement_server.core.exceptions import PlaybackDeviceError
 from announcement_server.monitoring.metrics import MetricsCollector
@@ -22,6 +23,7 @@ from announcement_server.playback.manager import PlaybackManager
 from announcement_server.queueing.manager import QueueManager
 from announcement_server.scheduler.manager import SchedulerManager
 from announcement_server.tts.service import TTSService
+from announcement_server.tts.voice_registry import VoiceRegistry
 from announcement_server.websocket.manager import ConnectionManager
 from announcement_server.zones.manager import ZoneManager
 
@@ -128,6 +130,19 @@ def get_tts_service(request: Request) -> TTSService:
 TTSServiceDep = Annotated[TTSService, Depends(get_tts_service)]
 
 
+def get_voice_registry(request: Request) -> VoiceRegistry:
+    """Mengambil instance VoiceRegistry tunggal (V2 Phase 5, dibuat & di-refresh sekali saat app startup).
+
+    Dipakai HANYA oleh endpoint discovery (`GET /tts/voices*`) -- TIDAK dipakai oleh
+    pipeline sintesis TTS itu sendiri (validasi voice saat sintesis tetap dilakukan
+    oleh engine masing-masing, persis seperti V1, lihat `tts/service.py`).
+    """
+    return request.app.state.voice_registry
+
+
+VoiceRegistryDep = Annotated[VoiceRegistry, Depends(get_voice_registry)]
+
+
 def get_asset_resolver(request: Request) -> AudioAssetResolver:
     """Mengambil instance AudioAssetResolver tunggal (Phase 7, dibuat saat app startup).
 
@@ -138,6 +153,19 @@ def get_asset_resolver(request: Request) -> AudioAssetResolver:
 
 
 AssetResolverDep = Annotated[AudioAssetResolver, Depends(get_asset_resolver)]
+
+
+def get_chime_catalog(request: Request) -> ChimeCatalog:
+    """Mengambil instance ChimeCatalog tunggal (dibuat saat app startup).
+
+    Dipakai HANYA oleh endpoint discovery (`GET /chimes`) — katalog ini murni
+    read-only dan menscan `announcement.chime_dir` setiap kali dipanggil,
+    sehingga file chime baru langsung muncul tanpa restart server.
+    """
+    return request.app.state.chime_catalog
+
+
+ChimeCatalogDep = Annotated[ChimeCatalog, Depends(get_chime_catalog)]
 
 
 def get_connection_manager(request: Request) -> ConnectionManager:
